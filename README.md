@@ -17,17 +17,24 @@
    - **相容性支援**：原生支援 Steam 啟動與社群 Multiverse Launcher（全戰役槽位 GameData 0~2 完整注入）。
 
 2. **遊戲畫面與字體外觀 GUI 設定工具 (`遊戲畫面與字體設定.bat` / `Populous_Settings_GUI.ps1`)**
-   - **Windows 原生圖形化視窗**：免進遊戲選單，直覺以單選圓鈕調整所有參數。
+   - **Windows 原生圖形化視窗**：免進遊戲選單，直覺以單選圓鈕調整所有畫面與操作參數。
    - **4:3 經典比例維持**：保持正方形像素比例（推薦），避免 16:9 水平拉伸導致中文字元被壓扁 33%。
    - **文字清晰化模式**：消除原版中文字體背後厚重的 `+2, +2` 像素黑底重影，讓 16×16 細明體點陣字清晰銳利、好讀不累眼。
    - **3D 渲染解析度安全切換**：在外部安全預設為 1024×768（最高畫質）/ 800×600 / 640×480，解決遊戲內選單即時更換解析度導致的崩潰。
+   - **滑鼠控制一鍵切換**：可隨時在「現代 RTS 模式」與「1998 原版模式」之間切換。
 
-3. **現代 RTS 滑鼠右鍵移動小人 (`PopulousMouseHelper.exe` / `PopulousMouseHelper.cs`)**
+3. **原生 DirectInput 現代 RTS 滑鼠右鍵移動小人 (`dinput.dll` 轉發層)**
    - **符合現代操作習慣**：
-     - **左鍵**：點擊選取、拉框框選信徒、施放法術、點擊介面。
+     - **左鍵**：點選單一信徒、拉框框選單位、施放法術、點擊 UI。
      - **右鍵**：**點擊地面直接下達移動/進攻指令**（小人直接跑步就位，不再被取消選取）！
-     - **取消選取**：按鍵盤 `ESC`、`空白鍵` 或 `Shift + 右鍵`。
-   - **輕量與無干擾**：以 C# 編寫的低階滑鼠掛鉤，記憶體佔用小於 5MB，CPU 0.00%；僅在遊戲視窗處於最上層時生效，遊戲關閉後自動安全退出。
+     - **取消選取 / 查詢**：按鍵盤 `ESC`、`空白鍵`，或按住 `Shift + 右鍵`（保留原版右鍵功能）。
+   - **底層技術原理解析（為什麼外部腳本無效）**：
+     - 《上帝也瘋狂 3》在 1998 年採用了 DirectX DirectInput 5.0 架構，透過 `GUID_SysMouse` 建立滑鼠裝置，並在主迴圈直接以 `GetDeviceData` 讀取硬體驅動層的緩衝事件隊列。
+     - 傳統外部工具（如 AutoHotkey、`mouse_event`、`SendInput`、Windows `WH_MOUSE_LL` 鉤子）僅能注入 User32 訊息隊列，完全被 DirectInput 底層驅動繞過，因此外部點擊完全無效。
+     - 本專案採用 **DirectInput 原生轉發代理（`dinput.dll`）**，直接攔截 `IDirectInputDeviceA::GetDeviceData` 與 `GetDeviceState`，在引擎讀取前將右鍵代碼（`DIMOFS_BUTTON1`）即時轉譯為左鍵移動代碼（`DIMOFS_BUTTON0`）。
+   - **零背景行程、跨啟動相容**：
+     - 無需在背景常駐任何第三方程式。
+     - 無論直接從 **Steam 客戶端點擊「開始遊戲」**、點擊桌面捷徑或執行檔，均能 100% 自動生效！
 
 4. **遊戲內換解析度閃退原因說明**
    - **崩潰原因**：1998 年的 DirectX 5/6 引擎在切換解析度時，會嘗試即時銷毀並重建 DirectDraw 表面；在 Windows 10/11 的現代顯卡驅動下會引發記憶體釋放違規（`ntdll.dll 0xc0000005`）。
@@ -41,10 +48,12 @@
 
 | 檔案類型 / 副檔名 | 換行格式 (EOL) | 字元編碼 (Encoding) | 說明 |
 | :--- | :---: | :---: | :--- |
-| **`.bat` (批次檔)** | `CRLF (\r\n)` | `UTF-8 (無 BOM)` | 開頭均包含 `chcp 65001 >nul`，確保中文字元在 CMD 中正常執行與顯示。 |
+| **`.bat` (批次檔)** | `CRLF (\r\n)` | `UTF-8 (無 BOM)` | 確保批次檔在 CMD / Windows 命令提示字元中正常解析。 |
 | **`.ps1` (PowerShell)** | `CRLF (\r\n)` | `UTF-8 with BOM (utf-8-sig)` | **重要**：Windows PowerShell 5.1 解析無 BOM 的 UTF-8 檔案時會預設當作系統 ANSI (CP950) 解析，導致多位元組中文字元引發語法錯誤閃退；因此必須強制採用 **帶 BOM 的 UTF-8**。 |
-| **`.cs` (C# 原始碼)** | `CRLF (\r\n)` | `UTF-8` | 相容 .NET Framework `csc.exe` 編譯器。 |
-| **`.ini` / `.cfg` (設定檔)** | `CRLF (\r\n)` | `UTF-8` | `ddraw.ini` 與設定設定檔，供 DirectDraw 轉換層讀取。 |
+| **`.ini` / `.cfg` (設定檔)** | `CRLF (\r\n)` | `UTF-8` | `ddraw.ini` 與 `populous_mouse.ini`，供轉發層與 GUI 雙向讀寫。 |
+| **`.cpp` / `.def` (原始碼)** | `CRLF (\r\n)` | `UTF-8` | DirectInput 代理層原始碼與模組定義檔，支援 MinGW 32-bit (`i686-w64-mingw32-g++`) 編譯。 |
+| **`.dll` (動態連結函式庫)** | N/A (二進位) | x86 (32-bit PE) | 編譯完成的 32 位元 DirectInput 代理庫。 |
+| **`.md` (文件)** | `LF (\n)` | `UTF-8` | GitHub 標準 Markdown 格式。 |
 
 ---
 
@@ -52,10 +61,10 @@
 
 1. **套用繁體中文補丁**：
    - 進入 `Steam中文語系補丁` 資料夾，以管理員身分執行 `套用中文化到Steam(UTF8).bat`。
-2. **調整畫面與字體外觀**：
-   - 雙擊執行 `遊戲畫面與字體設定.bat`，即可開啟圖形化設定視窗，自由選擇比例、解析度與字體陰影。
-3. **體驗現代 RTS 右鍵移動**：
-   - 雙擊執行 `啟動上帝也瘋狂(右鍵移動版).bat`，遊戲將自動掛載右鍵移動輔助並直接進入遊戲！
+2. **調整畫面、解析度與操作模式**：
+   - 雙擊執行 `遊戲畫面與字體設定.bat`，即可開啟圖形化設定視窗，自由選擇比例、解析度、字體陰影與滑鼠操作習慣。
+3. **享受現代 RTS 體驗**：
+   - 設定完成後，直接在 Steam 點擊「開始遊戲」，或點擊桌面捷徑即可！
 
 ---
 
@@ -76,13 +85,20 @@ A comprehensive modernization, bug-fix, and Traditional Chinese localization too
    - **4:3 Aspect Ratio Preservation**: Prevents horizontal 16:9 distortion (which squashes Chinese characters by ~33%), keeping pixels crisp and square.
    - **Clean Font Rendering Mode**: Removes the heavy `+2, +2` pixel drop-shadow pass that caused dense 16×16 Chinese bitmap characters to blur and bleed into neighboring strokes.
    - **Safe 3D Resolution Pre-configuration**: Allows safely selecting 1024×768 (highest quality), 800×600, or 640×480 prior to launching the game.
+   - **Mouse Control Scheme Toggle**: Switch freely between Modern RTS controls and the classic 1998 controls.
 
-3. **Modern RTS Right-Click Unit Movement (`PopulousMouseHelper.exe` / `PopulousMouseHelper.cs`)**
+3. **Native DirectInput Modern RTS Right-Click Movement (`dinput.dll` Proxy)**
    - **Modern RTS Control Scheme**:
      - **Left Click**: Select single follower, drag-box select units, cast spells, click UI.
      - **Right Click**: **Click on ground to issue movement/attack commands** (followers immediately run to the target location instead of being deselected)!
-     - **Deselect**: Press `ESC`, `Space`, or `Shift + Right Click`.
-   - **Zero Overhead**: Written in C# using low-level mouse hooks (`WH_MOUSE_LL`). Uses < 5MB RAM and 0.00% CPU. Only active when the Populous window is focused, and automatically terminates when the game exits.
+     - **Deselect / Query**: Press `ESC`, `Space`, or hold `Shift + Right Click` (preserves original right-click query/deselect behavior).
+   - **Technical Root Cause (Why External Hooks / AHK Failed)**:
+     - *Populous: The Beginning* utilizes DirectX DirectInput 5.0 (`GUID_SysMouse`), retrieving raw mouse events directly from the driver buffer via `IDirectInputDeviceA::GetDeviceData`.
+     - Standard Windows User32 hooks (`WH_MOUSE_LL`) and simulated inputs (`mouse_event`, `SendInput`, AutoHotkey) only interact with the User32 message queue and are completely bypassed by DirectInput.
+     - This project provides a native **DirectInput proxy DLL (`dinput.dll`)** that hooks `GetDeviceData` and `GetDeviceState` from within the process space, translating Right-Click (`DIMOFS_BUTTON1`) into Left-Click (`DIMOFS_BUTTON0`) in real time before the game engine processes it.
+   - **Zero Background Processes & Steam Native**:
+     - No external background helper processes required.
+     - Works seamlessly regardless of launch method: directly via the Steam client "Play" button, desktop shortcuts, or custom launchers.
 
 4. **In-Game Resolution Crash Explanation**
    - **Root Cause**: The 1998 DirectX 5/6 engine attempts to instantly destroy and recreate DirectDraw surfaces mid-frame when clicking the in-game resolution slider, triggering heap corruption in `ntdll.dll (0xc0000005)` on Windows 10/11 WDDM drivers.
@@ -96,10 +112,12 @@ To guarantee reliable execution across modern Windows systems and PowerShell 5.1
 
 | File Type / Extension | Line Endings (EOL) | Character Encoding | Notes |
 | :--- | :---: | :---: | :--- |
-| **`.bat` (Batch Scripts)** | `CRLF (\r\n)` | `UTF-8 (without BOM)` | Includes `chcp 65001 >nul` to ensure proper UTF-8 console output. |
+| **`.bat` (Batch Scripts)** | `CRLF (\r\n)` | `UTF-8 (without BOM)` | Standard batch scripts for CMD / Windows Command Prompt. |
 | **`.ps1` (PowerShell)** | `CRLF (\r\n)` | `UTF-8 with BOM (utf-8-sig)` | **Critical**: Windows PowerShell 5.1 parses non-BOM UTF-8 files as system ANSI (e.g. CP950/CP1252), causing Chinese characters to break script syntax and flash-crash. Must use UTF-8 with BOM. |
-| **`.cs` (C# Source)** | `CRLF (\r\n)` | `UTF-8` | Fully compatible with .NET Framework `csc.exe` v4.x. |
-| **`.ini` / `.cfg` (Configs)** | `CRLF (\r\n)` | `UTF-8` | For DirectDraw wrapper (`ddraw.ini`) and helper configuration. |
+| **`.ini` / `.cfg` (Configs)** | `CRLF (\r\n)` | `UTF-8` | For DirectDraw wrapper (`ddraw.ini`) and mouse configuration (`populous_mouse.ini`). |
+| **`.cpp` / `.def` (Source)** | `CRLF (\r\n)` | `UTF-8` | DirectInput proxy source code and module definition, compiled via MinGW 32-bit (`i686-w64-mingw32-g++`). |
+| **`.dll` (Binaries)** | N/A (Binary) | x86 (32-bit PE) | Precompiled 32-bit DirectInput proxy library. |
+| **`.md` (Documentation)** | `LF (\n)` | `UTF-8` | GitHub standard Markdown format. |
 
 ---
 
@@ -110,11 +128,11 @@ To guarantee reliable execution across modern Windows systems and PowerShell 5.1
 2. **Configure Display & Font Quality**:
    - Double-click `遊戲畫面與字體設定.bat` to launch the GUI configuration tool.
 3. **Play with Modern Right-Click Controls**:
-   - Double-click `啟動上帝也瘋狂(右鍵移動版).bat` to launch the game with modern RTS right-click movement enabled!
+   - Launch directly through Steam, desktop shortcut, or GUI launcher!
 
 ---
 
 ### 📄 License
 
-This project is licensed under the [GNU General Public License v3.0](LICENSE).
+This project is licensed under the [GNU General Public License v3.0](LICENSE).  
 Populous: The Beginning is © Electronic Arts / Bullfrog Productions.

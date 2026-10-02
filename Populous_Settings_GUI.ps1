@@ -7,8 +7,17 @@ $DdrawIni = Join-Path $GameDir "ddraw.ini"
 $D3DExe = Join-Path $GameDir "D3DPopTB.exe"
 $PopExe = Join-Path $GameDir "popTB.exe"
 $SaveCfg = Join-Path $GameDir "save\CONFIG00.DAT"
-$MouseHelper = Join-Path $GameDir "PopulousMouseHelper.exe"
-$MouseCfg = Join-Path $GameDir "mouse_mode.cfg"
+$MouseIni = Join-Path $GameDir "populous_mouse.ini"
+$DinputDll = Join-Path $GameDir "dinput.dll"
+$DinputBak = Join-Path $GameDir "dinput.dll.bak"
+
+$isModernMouse = $true
+if (Test-Path $MouseIni) {
+    $mMatch = Get-Content $MouseIni | Select-String -Pattern "^EnableRightClickMove\s*=\s*(\d)" | Select-Object -First 1
+    if ($mMatch -and $mMatch.Matches.Groups[1].Value -eq "0") {
+        $isModernMouse = $false
+    }
+}
 
 # --- 讀取當前設定 ---
 $is43 = $true
@@ -44,14 +53,6 @@ if (Test-Path $SaveCfg) {
     $b = [System.IO.File]::ReadAllBytes($SaveCfg)
     if ($b.Length -ge 20) {
         $curRes = [System.BitConverter]::ToUInt16($b, 2)
-    }
-}
-
-$isModernMouse = $true
-if (Test-Path $MouseCfg) {
-    $mText = (Get-Content $MouseCfg).Trim()
-    if ($mText -eq "classic") {
-        $isModernMouse = $false
     }
 }
 
@@ -234,11 +235,20 @@ function Save-AllSettings {
         }
     }
 
-    # 4. 儲存滑鼠控制模式
+    # 4. 儲存滑鼠控制模式 (DirectInput RTS 右鍵移動)
     if ($rbMouseModern.Checked) {
-        [System.IO.File]::WriteAllText($MouseCfg, "modern")
+        if (Test-Path $DinputBak -and -not (Test-Path $DinputDll)) {
+            Rename-Item -Path $DinputBak -NewName "dinput.dll" -Force
+        }
+        if (Test-Path $MouseIni) {
+            $mText = (Get-Content $MouseIni) -replace "^EnableRightClickMove\s*=.*$", "EnableRightClickMove=1"
+            [System.IO.File]::WriteAllLines($MouseIni, $mText, [System.Text.Encoding]::UTF8)
+        }
     } else {
-        [System.IO.File]::WriteAllText($MouseCfg, "classic")
+        if (Test-Path $MouseIni) {
+            $mText = (Get-Content $MouseIni) -replace "^EnableRightClickMove\s*=.*$", "EnableRightClickMove=0"
+            [System.IO.File]::WriteAllLines($MouseIni, $mText, [System.Text.Encoding]::UTF8)
+        }
     }
 
     # 5. 儲存 3D 解析度
@@ -271,13 +281,6 @@ function Save-AllSettings {
 
 function Launch-GameWithMouseOption {
     Save-AllSettings
-    if ($rbMouseModern.Checked) {
-        if (Test-Path $MouseHelper) {
-            Start-Process $MouseHelper -WorkingDirectory $GameDir
-        }
-    } else {
-        Get-Process "PopulousMouseHelper" -ErrorAction SilentlyContinue | Stop-Process -Force
-    }
     Start-Process $D3DExe -WorkingDirectory $GameDir
 }
 
