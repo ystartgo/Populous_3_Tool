@@ -41,6 +41,9 @@
          - 玩家釋放**左鍵**（`0xF0`）時，即時映射為原版**右鍵動作（Action 108：取消選取 Deselect）**，徹底消除左鍵移動！
          - 玩家釋放**右鍵**（`0xF1`）時，即時映射為原版**左鍵動作（Action 109：下達移動指令 Move）**，實現右鍵專責移動！
        - 在未選取信徒時或框選拖曳時，完全保留原版左鍵選取與右鍵旋轉，**不重對應 DirectInput 底層實體按鍵**，因此視角旋轉、法術施放、雙游標防護 100% 完美穩定。
+   - **Alt-Tab 視窗切換滑鼠自動復原 (Alt-Tab Auto-Recovery)**：
+     - **歷史問題**：1998 原版引擎在 Alt-Tab 切出遊戲時，會將內部視窗焦點旗標（`0x0059D828`）歸零並釋放（Unacquire）滑鼠裝置；在現代 Win10/Win11 與封裝層下切回遊戲時，因未收到或遺失啟用訊息，導致引擎誤以為仍處於背景，滑鼠永久無法控制。
+     - **底層修復**：代理層精準攔截焦點查詢核心（`VA 0x005015C0`），每當遊戲切回前台時，自動呼叫輸入裝置管理器（`VA 0x0051CC40`）重新獲取（Reacquire）滑鼠與鍵盤裝置，並自動重設活動旗標，**徹底解決 Alt-Tab 切回後滑鼠死鎖的問題**！
    - **零背景行程、跨啟動相容**：
      - 無需在背景常駐任何第三方程式（已徹底淘汰舊版 `PopulousMouseHelper.exe`）。
      - 無論直接從 **Steam 客戶端點擊「開始遊戲」**、點擊桌面捷徑或執行檔，均能 100% 自動生效！
@@ -142,6 +145,9 @@ A comprehensive modernization, bug-fix, and Traditional Chinese localization too
        - In selection mode (`0x0D`), Left-Click release is dynamically translated to Action 108 (Deselect), eliminating false movement orders on Left-Click.
        - Right-Click release is dynamically translated to Action 109 (Move), issuing unit movement commands directly.
        - Raw DirectInput physical buttons are **NOT** swapped or modified, completely preventing double-cursor glitches, camera rotation breakage, and spell targeting conflicts.
+   - **Alt-Tab Window Switching & Mouse Input Auto-Recovery**:
+     - **Root Cause**: When Alt-Tabbing away, the 1998 engine clears its internal focus flag (`0x0059D828`) and unacquires DirectInput devices. Upon returning in Windows 10/11, missing or swallowed activation messages left the engine believing it was still in the background, causing complete mouse loss.
+     - **Engine Hook Fix**: Our proxy intercepts the focus query at `VA 0x005015C0`. Whenever the game process regains foreground status, it immediately re-invokes the input manager (`VA 0x0051CC40`) to reacquire all mouse/keyboard devices and sets the active flag back to 1, **completely eliminating the Alt-Tab mouse freeze**!
    - **Zero Background Processes & Steam Native**:
      - No external background helper processes required (retired legacy `PopulousMouseHelper.exe`).
      - Works seamlessly regardless of launch method: directly via the Steam client "Play" button, desktop shortcuts, or custom launchers.

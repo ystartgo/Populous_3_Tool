@@ -19,14 +19,14 @@ if exist "populous_mouse.ini" (
     powershell -NoProfile -Command "$f='populous_mouse.ini'; (Get-Content $f -Raw) -replace 'EnableRightClickMove=0','EnableRightClickMove=1' -replace 'ModernControls=0','ModernControls=1' | Set-Content $f -Encoding UTF8"
 )
 
-:: 3. 確保 ddraw.ini 中 handlemouse=false 與 adjmouse=false，杜絕雙游標
+:: 3. 確保 ddraw.ini 中 handlemouse=false 與 adjmouse=false，並開啟 noactivateapp=true 支援順暢 Alt-Tab
 if exist "ddraw.ini" (
-    powershell -NoProfile -Command "$f='ddraw.ini'; (Get-Content $f -Raw) -replace 'handlemouse=true','handlemouse=false' -replace 'adjmouse=true','adjmouse=false' | Set-Content $f -Encoding UTF8"
+    powershell -NoProfile -Command "$f='ddraw.ini'; (Get-Content $f -Raw) -replace 'handlemouse=true','handlemouse=false' -replace 'adjmouse=true','adjmouse=false' -replace 'noactivateapp=false','noactivateapp=true' | Set-Content $f -Encoding UTF8"
 )
 
 echo [OK] DirectInput 現代右鍵移動代理層已啟用
 echo [OK] 右鍵移動已開啟 [右鍵點擊地面移動角色，左鍵點擊空地取消選取]
-echo [OK] DirectDraw 雙游標防護已生效 [handlemouse=false]
+echo [OK] DirectDraw 雙游標防護與 Alt-Tab 復原已生效 [handlemouse=false, noactivateapp=true]
 echo.
 echo ================================================================
 echo   【成功】現代滑鼠設定已生效！

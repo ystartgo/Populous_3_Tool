@@ -117,6 +117,41 @@ __asm__(
 "    ret $12\n\t"
 );
 
+// ---------------------------------------------------------------------------
+// Focus & Alt-Tab recovery hook (VA 0x005015C0)
+// ---------------------------------------------------------------------------
+static const uintptr_t VA_ISAPPACTIVE = 0x005015C0;
+static const uintptr_t VA_ACTFLAG     = 0x0059D828;
+static const uintptr_t VA_INPUTMGR    = 0x00966430;
+static const uintptr_t VA_NOTIFYINPUT = 0x0051CC40;
+
+typedef void (__attribute__((thiscall)) *NotifyInput_t)(void* mgr, int event, int state);
+
+extern "C" int __attribute__((cdecl)) MyIsAppActive() {
+    HWND hFg = GetForegroundWindow();
+    DWORD pid = 0;
+    if (hFg) {
+        GetWindowThreadProcessId(hFg, &pid);
+    }
+    bool isForeground = (pid == GetCurrentProcessId());
+    static bool s_wasForeground = true;
+
+    if (isForeground) {
+        DWORD curFlag = *(volatile DWORD*)VA_ACTFLAG;
+        if (!s_wasForeground || curFlag == 0) {
+            *(volatile DWORD*)VA_ACTFLAG = 1;
+            NotifyInput_t notify = (NotifyInput_t)VA_NOTIFYINPUT;
+            notify((void*)VA_INPUTMGR, 6, 1);
+            Log("[FOCUS] Window regained focus (was=%d, flag=%d) -> reacquired input devices!\n", s_wasForeground, curFlag);
+            s_wasForeground = true;
+        }
+        return 1;
+    } else {
+        s_wasForeground = false;
+        return *(volatile DWORD*)VA_ACTFLAG;
+    }
+}
+
 static void InstallEnginePatch() {
     static const BYTE sig[] = { 0x53, 0x33, 0xC0, 0x8A, 0x44, 0x24, 0x08, 0x56, 0x57, 0x55, 0x8B, 0x34 };
     BYTE* target = (BYTE*)VA_LOOKUP;
@@ -132,6 +167,22 @@ static void InstallEnginePatch() {
         VirtualProtect(target, 8, old, &old);
         FlushInstructionCache(GetCurrentProcess(), target, 8);
         Log("Installed binding lookup hook at %p\n", target);
+    }
+
+    // Install focus / Alt-Tab recovery hook at 0x005015C0
+    static const BYTE sigFocus[] = { 0xA1, 0x28, 0xD8, 0x59, 0x00, 0xC3 };
+    BYTE* targetFocus = (BYTE*)VA_ISAPPACTIVE;
+    if (!IsBadReadPtr(targetFocus, sizeof(sigFocus)) && memcmp(targetFocus, sigFocus, sizeof(sigFocus)) == 0) {
+        if (VirtualProtect(targetFocus, 6, PAGE_EXECUTE_READWRITE, &old)) {
+            targetFocus[0] = 0xE9;
+            *(DWORD*)(targetFocus + 1) = (DWORD)(uintptr_t)MyIsAppActive - (DWORD)(uintptr_t)targetFocus - 5;
+            targetFocus[5] = 0x90;
+            VirtualProtect(targetFocus, 6, old, &old);
+            FlushInstructionCache(GetCurrentProcess(), targetFocus, 6);
+            Log("Installed focus recovery hook at %p\n", targetFocus);
+        }
+    } else {
+        Log("Focus recovery signature mismatch at %p\n", targetFocus);
     }
 }
 
