@@ -19,7 +19,55 @@ static int g_DebugLog = 0;
 // Flag to track whether the active ground action was initiated by Physical Right Click
 static volatile int g_IsPhysicalRightClick = 0;
 
-// 1. Single-unit / Shaman Move Hook (VA 0x00427b20)
+static void Log(const char* fmt, ...) {
+    if (!g_DebugLog) return;
+    char path[MAX_PATH];
+    GetModuleFileNameA(NULL, path, MAX_PATH);
+    char* s = strrchr(path, '\\');
+    if (s) strcpy(s + 1, "populous_mouse.log");
+    else strcpy(path, "populous_mouse.log");
+    
+    FILE* f = fopen(path, "a");
+    if (!f) return;
+    va_list va;
+    va_start(va, fmt);
+    vfprintf(f, fmt, va);
+    va_end(va);
+    fclose(f);
+}
+
+// 1. Mouse Ground Target Assignment Hook (VA 0x0047db60)
+static uintptr_t g_GroundTargetTarget = 0x0047db60;
+static uintptr_t g_GroundTargetContinue = 0x0047db68;
+
+__attribute__((naked)) void Hook_GroundTarget() {
+    __asm__ (
+        // Test if this is a physical right click
+        "movl %0, %%ecx\n\t"
+        "testl %%ecx, %%ecx\n\t"
+        "jnz 2f\n\t"
+        
+        // Physical Left Click: reject ground move command! Return immediately without moving
+        "1:\n\t"
+        "ret\n\t"
+        
+        // Physical Right Click: allow ground move
+        "2:\n\t"
+        "movl $0, %0\n\t"
+        // Execute original stolen 8 bytes:
+        // sub esp, 8
+        // mov byte ptr [esp + 3], 0
+        "subl $8, %%esp\n\t"
+        "movb $0, 3(%%esp)\n\t"
+        // Jump to continue address
+        "pushl %1\n\t"
+        "ret\n\t"
+        :
+        : "m"(g_IsPhysicalRightClick), "m"(g_GroundTargetContinue)
+    );
+}
+
+// 2. Single-unit / Shaman Move Hook (VA 0x00427b20)
 static uintptr_t g_SingleMoveTarget = 0x00427b20;
 static uintptr_t g_SingleMoveContinue = 0x00427b27;
 
@@ -53,7 +101,7 @@ __attribute__((naked)) void Hook_SingleMove() {
     );
 }
 
-// 2. Multi-unit Group Move Hook (VA 0x004286e0)
+// 3. Multi-unit Group Move Hook (VA 0x004286e0)
 static uintptr_t g_MultiMoveTarget = 0x004286e0;
 static uintptr_t g_MultiMoveContinue = 0x004286e7;
 
@@ -108,17 +156,6 @@ static CreateDevice_t real_CreateDevice = NULL;
 static GetDeviceData_t real_GetDeviceData = NULL;
 static GetDeviceState_t real_GetDeviceState = NULL;
 
-static void Log(const char* fmt, ...) {
-    if (!g_DebugLog) return;
-    FILE* f = fopen("populous_mouse.log", "a");
-    if (!f) return;
-    va_list va;
-    va_start(va, fmt);
-    vfprintf(f, fmt, va);
-    va_end(va);
-    fclose(f);
-}
-
 static void InstallEnginePatch() {
     HMODULE hMod = GetModuleHandleA(NULL);
     if (!hMod) return;
@@ -131,8 +168,43 @@ static void InstallEnginePatch() {
     BYTE* base = (BYTE*)hMod;
     DWORD size = nt->OptionalHeader.SizeOfImage;
     
-    // 1. Single-Unit / Shaman Move Hook at 0x00427b20
-    // Signature: 56 6a 00 8b 74 24 0c 6a 07 56
+    // 1. Hook Mouse Ground Target Assignment (VA 0x0047db60)
+    // Signature: 83 ec 08 c6 44 24 03 00 53 56 57 55
+    static const BYTE sigGround[] = { 0x83, 0xec, 0x08, 0xc6, 0x44, 0x24, 0x03, 0x00, 0x53, 0x56, 0x57, 0x55 };
+    BYTE* targetGround = NULL;
+    if ((uintptr_t)hMod == 0x00400000 && !IsBadReadPtr((void*)0x0047db60, sizeof(sigGround))) {
+        if (memcmp((void*)0x0047db60, sigGround, sizeof(sigGround)) == 0) {
+            targetGround = (BYTE*)0x0047db60;
+        }
+    }
+    if (!targetGround) {
+        for (DWORD i = 0; i < size - sizeof(sigGround); i++) {
+            if (base[i] == 0x83 && base[i+1] == 0xec && base[i+2] == 0x08 && base[i+3] == 0xc6) {
+                if (memcmp(base + i, sigGround, sizeof(sigGround)) == 0) {
+                    targetGround = base + i;
+                    break;
+                }
+            }
+        }
+    }
+    if (targetGround) {
+        g_GroundTargetContinue = (uintptr_t)(targetGround + 8);
+        DWORD oldProtect;
+        if (VirtualProtect(targetGround, 16, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+            DWORD rel = (DWORD)(uintptr_t)Hook_GroundTarget - (DWORD)(uintptr_t)targetGround - 5;
+            targetGround[0] = 0xE9; // JMP rel32
+            *(DWORD*)(targetGround + 1) = rel;
+            targetGround[5] = 0x90; // NOP
+            targetGround[6] = 0x90; // NOP
+            targetGround[7] = 0x90; // NOP
+            VirtualProtect(targetGround, 16, oldProtect, &oldProtect);
+            Log("Installed Hook_GroundTarget at %p successfully!\n", targetGround);
+        }
+    } else {
+        Log("Failed to locate GroundTarget function in process\n");
+    }
+    
+    // 2. Single-Unit / Shaman Move Hook at 0x00427b20
     static const BYTE sigSingle[] = { 0x56, 0x6a, 0x00, 0x8b, 0x74, 0x24, 0x0c, 0x6a, 0x07, 0x56 };
     BYTE* targetSingle = NULL;
     if ((uintptr_t)hMod == 0x00400000 && !IsBadReadPtr((void*)0x00427b20, sizeof(sigSingle))) {
@@ -166,8 +238,7 @@ static void InstallEnginePatch() {
         Log("Failed to locate SingleMove function in process\n");
     }
     
-    // 2. Multi-Unit Group Move Hook at 0x004286e0
-    // Signature: 8b 44 24 04 83 ec 08 53 56 57 55 50
+    // 3. Multi-Unit Group Move Hook at 0x004286e0
     static const BYTE sigMulti[] = { 0x8b, 0x44, 0x24, 0x04, 0x83, 0xec, 0x08, 0x53, 0x56, 0x57, 0x55, 0x50 };
     BYTE* targetMulti = NULL;
     if ((uintptr_t)hMod == 0x00400000 && !IsBadReadPtr((void*)0x004286e0, sizeof(sigMulti))) {
@@ -245,7 +316,7 @@ static void LoadRealDInput() {
 
 static HRESULT STDMETHODCALLTYPE Hooked_GetDeviceData(IDirectInputDeviceA* pThis, DWORD cbObjectData, LPDIDEVICEOBJECTDATA rgdod, LPDWORD pdwInOut, DWORD dwFlags) {
     HRESULT hr = real_GetDeviceData(pThis, cbObjectData, rgdod, pdwInOut, dwFlags);
-    if (SUCCEEDED(hr) && pThis == g_pMouseDevice && rgdod != NULL && pdwInOut != NULL && *pdwInOut > 0) {
+    if (SUCCEEDED(hr) && rgdod != NULL && pdwInOut != NULL && *pdwInOut > 0) {
         if (g_EnableRightClickMove) {
             DWORD count = *pdwInOut;
             for (DWORD i = 0; i < count; i++) {
@@ -254,23 +325,20 @@ static HRESULT STDMETHODCALLTYPE Hooked_GetDeviceData(IDirectInputDeviceA* pThis
                 if (item->dwOfs == DIMOFS_BUTTON1) { // Physical Right Click
                     BOOL shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
                     if (!shift || !g_ShiftReverts) {
-                        // Mark physical right click active for engine move handlers
                         if (item->dwData & 0x80) {
                             g_IsPhysicalRightClick = 1;
                         }
-                        // Remap Right Click to Left Click (DIMOFS_BUTTON0) for RTS movement
                         item->dwOfs = DIMOFS_BUTTON0;
-                        Log("Remapped Right Click -> Left Click (dwData=0x%lx)\n", item->dwData);
+                        Log("[DINPUT-DATA] Remapped Right Click -> Left Click (dwData=0x%lx, g_IsPhysicalRightClick=%d)\n", item->dwData, g_IsPhysicalRightClick);
                     } else {
-                        Log("Passed through Right Click (Shift held)\n");
+                        Log("[DINPUT-DATA] Passed through Right Click (Shift held)\n");
                     }
                 }
                 else if (item->dwOfs == DIMOFS_BUTTON0) { // Physical Left Click
-                    // Physical Left Click down clears right click flag so ground clicks won't move units
                     if (item->dwData & 0x80) {
                         g_IsPhysicalRightClick = 0;
                     }
-                    Log("Left Click -> Select / Box-select (dwData=0x%lx)\n", item->dwData);
+                    Log("[DINPUT-DATA] Left Click (dwData=0x%lx, g_IsPhysicalRightClick=%d)\n", item->dwData, g_IsPhysicalRightClick);
                 }
             }
         }
@@ -280,7 +348,7 @@ static HRESULT STDMETHODCALLTYPE Hooked_GetDeviceData(IDirectInputDeviceA* pThis
 
 static HRESULT STDMETHODCALLTYPE Hooked_GetDeviceState(IDirectInputDeviceA* pThis, DWORD cbData, LPVOID lpvData) {
     HRESULT hr = real_GetDeviceState(pThis, cbData, lpvData);
-    if (SUCCEEDED(hr) && pThis == g_pMouseDevice && lpvData != NULL && cbData >= sizeof(DIMOUSESTATE)) {
+    if (SUCCEEDED(hr) && lpvData != NULL && cbData >= sizeof(DIMOUSESTATE)) {
         if (g_EnableRightClickMove) {
             DIMOUSESTATE* ms = (DIMOUSESTATE*)lpvData;
             if (ms->rgbButtons[1] & 0x80) { // Physical right button down
@@ -289,9 +357,9 @@ static HRESULT STDMETHODCALLTYPE Hooked_GetDeviceState(IDirectInputDeviceA* pThi
                     g_IsPhysicalRightClick = 1;
                     ms->rgbButtons[0] = ms->rgbButtons[1];
                     ms->rgbButtons[1] = 0;
+                    Log("[DINPUT-STATE] Remapped Right Button Down -> Left Button Down\n");
                 }
             } else if (ms->rgbButtons[0] & 0x80) {
-                // Physical left button down
                 g_IsPhysicalRightClick = 0;
             }
         }
@@ -302,27 +370,22 @@ static HRESULT STDMETHODCALLTYPE Hooked_GetDeviceState(IDirectInputDeviceA* pThi
 static HRESULT STDMETHODCALLTYPE Hooked_CreateDevice(IDirectInputA* pThis, REFGUID rguid, LPDIRECTINPUTDEVICEA* lplpDirectInputDevice, LPUNKNOWN pUnkOuter) {
     HRESULT hr = real_CreateDevice(pThis, rguid, lplpDirectInputDevice, pUnkOuter);
     if (SUCCEEDED(hr) && lplpDirectInputDevice && *lplpDirectInputDevice) {
-        if (IsEqualGUID(rguid, MY_GUID_SysMouse)) {
-            g_pMouseDevice = *lplpDirectInputDevice;
-            Log("DirectInput mouse device created: %p\n", g_pMouseDevice);
-            
-            // Hook GetDeviceData and GetDeviceState in device vtable
-            DWORD oldProtect;
-            if (VirtualProtect(g_pMouseDevice->lpVtbl, sizeof(IDirectInputDeviceAVtbl), PAGE_EXECUTE_READWRITE, &oldProtect)) {
-                if (!real_GetDeviceData) {
-                    real_GetDeviceData = g_pMouseDevice->lpVtbl->GetDeviceData;
-                    g_pMouseDevice->lpVtbl->GetDeviceData = Hooked_GetDeviceData;
-                }
-                if (!real_GetDeviceState) {
-                    real_GetDeviceState = g_pMouseDevice->lpVtbl->GetDeviceState;
-                    g_pMouseDevice->lpVtbl->GetDeviceState = Hooked_GetDeviceState;
-                }
-                VirtualProtect(g_pMouseDevice->lpVtbl, sizeof(IDirectInputDeviceAVtbl), oldProtect, &oldProtect);
-                Log("Hooked GetDeviceData (%p -> %p) and GetDeviceState (%p -> %p)\n",
-                    real_GetDeviceData, Hooked_GetDeviceData, real_GetDeviceState, Hooked_GetDeviceState);
-            } else {
-                Log("VirtualProtect on device vtable failed\n");
+        g_pMouseDevice = *lplpDirectInputDevice;
+        Log("DirectInput device created: %p (rguid=%08x)\n", g_pMouseDevice, rguid.Data1);
+        
+        DWORD oldProtect;
+        if (VirtualProtect(g_pMouseDevice->lpVtbl, sizeof(IDirectInputDeviceAVtbl), PAGE_EXECUTE_READWRITE, &oldProtect)) {
+            if (!real_GetDeviceData) {
+                real_GetDeviceData = g_pMouseDevice->lpVtbl->GetDeviceData;
+                g_pMouseDevice->lpVtbl->GetDeviceData = Hooked_GetDeviceData;
             }
+            if (!real_GetDeviceState) {
+                real_GetDeviceState = g_pMouseDevice->lpVtbl->GetDeviceState;
+                g_pMouseDevice->lpVtbl->GetDeviceState = Hooked_GetDeviceState;
+            }
+            VirtualProtect(g_pMouseDevice->lpVtbl, sizeof(IDirectInputDeviceAVtbl), oldProtect, &oldProtect);
+            Log("Hooked GetDeviceData (%p -> %p) and GetDeviceState (%p -> %p)\n",
+                real_GetDeviceData, Hooked_GetDeviceData, real_GetDeviceState, Hooked_GetDeviceState);
         }
     }
     return hr;
@@ -345,8 +408,6 @@ HRESULT WINAPI Proxy_DirectInputCreateA(HINSTANCE hinst, DWORD dwVersion, LPDIRE
             }
             VirtualProtect(pDI->lpVtbl, sizeof(IDirectInputAVtbl), oldProtect, &oldProtect);
             Log("Hooked CreateDevice (%p -> %p)\n", real_CreateDevice, Hooked_CreateDevice);
-        } else {
-            Log("VirtualProtect on IDirectInput vtable failed\n");
         }
     }
     return hr;
