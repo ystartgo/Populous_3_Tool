@@ -65,24 +65,6 @@ __asm__(
 
 static int g_ShiftReverts = 1;
 
-static inline bool IsMoveAction(int a) {
-    return a == 126 || a == 109 || a == 106;
-}
-
-static inline bool IsDeselectAction(int a) {
-    return a == 131 || a == 108;
-}
-
-static inline int ToMoveAction(int a) {
-    if (a == 108) return 109;
-    return 126;
-}
-
-static inline int ToDeselectAction(int a) {
-    if (a == 109 || a == 106) return 108;
-    return 131;
-}
-
 extern "C" int __attribute__((cdecl)) MyLookup(void* table, int key, int mods, int type) {
     int k = key & 0xFF;
     int t = type & 0xFF;
@@ -91,22 +73,22 @@ extern "C" int __attribute__((cdecl)) MyLookup(void* table, int key, int mods, i
     int origAction = Tramp_Lookup(table, key, mods, type);
 
     if (g_EnableRightClickMove && g_ModernControls && t == TYPE_RELEASE) {
-        // LMB release: If it was going to MOVE, turn it into DESELECT
-        if (k == KEY_LMB && IsMoveAction(origAction)) {
-            int deselectAction = ToDeselectAction(origAction);
-            Log("[MODERN] LMB release move(%d) -> DESELECT(%d) mode=0x%02x\n", origAction, deselectAction, mode);
-            return deselectAction;
+        // LMB release: If it was going to MOVE followers (Action 126), turn it into DESELECT (Action 131)
+        // Spells (Action 106: Cast Spell) are left 100% untouched so Left-Click casts spells normally!
+        if (k == KEY_LMB && origAction == 126) {
+            Log("[MODERN] LMB release move(126) -> DESELECT(131) mode=0x%02x\n", mode);
+            return 131;
         }
 
-        // RMB release: If it was going to DESELECT (or in selection mode), turn it into MOVE
-        if (k == KEY_RMB && (IsDeselectAction(origAction) || (origAction == 0 && (mode == 0x0C || mode == 0x0D || mode == 0x10)))) {
+        // RMB release: If it was going to DESELECT followers (Action 131), turn it into MOVE (Action 126)
+        // Spells (Action 108: Cancel Spell) are left 100% untouched!
+        if (k == KEY_RMB && origAction == 131) {
             if (g_ShiftReverts && (GetAsyncKeyState(VK_SHIFT) & 0x8000)) {
-                Log("[SHIFT-RMB] Keep orig action=%d mode=0x%02x\n", origAction, mode);
-                return origAction;
+                Log("[SHIFT-RMB] Keep orig action=131 mode=0x%02x\n", mode);
+                return 131;
             }
-            int moveAction = IsDeselectAction(origAction) ? ToMoveAction(origAction) : 126;
-            Log("[MODERN] RMB release action(%d) -> MOVE(%d) mode=0x%02x\n", origAction, moveAction, mode);
-            return moveAction;
+            Log("[MODERN] RMB release deselect(131) -> MOVE(126) mode=0x%02x\n", mode);
+            return 126;
         }
     }
 
