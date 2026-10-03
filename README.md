@@ -64,6 +64,100 @@
      - 本工具包的繁體中文補丁已直接適配 Multiverse 的戰役結構（自動注入 `Multiverse\GameData\0~2`）。
      - `dinput.dll` 原生現代 RTS 滑鼠操作亦全面支援 Multiverse 核心進程（`popTBM.exe`）。
 
+6. **遊戲內建密技與 72 項除錯模式指南 (In-Game Cheats & Debug Mode Guide)**
+   - **重要前置條件（必看）**：
+     - **Windows 輸入法切換**：在按下密技組合鍵與輸入文字前，務必將輸入法切換為「純英文模式」（ENG 或按 Win + 空白鍵 切換）。若處於微軟中文輸入法（注音、拼音等），DirectInput 會攔截按鍵導致密碼無效。
+     - **筆記型電腦鍵盤**：若筆電預設將 F1～F12 設為螢幕亮度/音量控制，請務必搭配 Fn 鍵（例如按 Fn + Tab + F11）。
+   - **啟動密技控制台**：
+     1. 進入戰役或單人遊戲關卡中。
+     2. 同時按下 **Tab + F11** 開啟遊戲內控制台（對話框）。
+     3. 鍵入密碼 **BYRNE**（或小寫 yrne），然後按下 **Enter** 鍵。
+     4. 畫面出現提示即表示密技模式已成功啟用！
+   - **密技快捷鍵列表**：
+     | 快捷鍵組合 | 效果功能說明 |
+     | :--- | :--- |
+     | **Tab + F1** | 加速法力回充（Faster mana regen，需持續連點按住） |
+     | **Tab + F2** | 法術無消耗／無限施法（Free spells） |
+     | **Tab + F3** | 立即解鎖並獲得所有法術（Receive all spells） |
+     | **Tab + F4** | 立即解鎖並獲得所有建築藍圖（Receive all buildings） |
+     | **Tab + F5** | 立即回滿魔法點數（Receive max mana） |
+     | **Shift + =** | 遊戲進行速度倍速加快（最高可達 33 倍速） |
+   - **全 72 項除錯模式 (Debug Mode Cheats)**：
+     - **操作方式**：啟用密碼後，長按鍵盤英文字母 **O** 不放，同時按 **方向鍵上下 (↑ / ↓)** 捲動瀏覽除錯變數項目；按 **方向鍵左右 (← / →)** 調整數值開關。
+     - **完整變數清單**：
+       1. Messages Off (關閉系統訊息)
+       2. Auto Quick Save (自動快速存檔)
+       3. Sound (音效開關)
+       4. Music Type (音樂播放類型)
+       5. Sync Checking (連線同步檢查)
+       6. No Draw (停止畫面繪製)
+       7. No Sprites Draw (停止精靈 Sprite 繪製)
+       8. Pause on out of sync (同步失敗時暫停)
+       9. No Texture Mapping (關閉貼圖映射)
+       10. No poly draw (關閉多邊形繪製)
+       11. No Objects Draw (關閉物件繪製)
+       12. Plan View Hide Enemy People (地圖俯視圖隱藏敵方人口)
+       13. Plan View Hide Enemy buildings (地圖俯視圖隱藏敵方建築)
+       14. Scroll Momentum (畫面捲動慣性)
+       15. Scroll momentum amount (捲動慣性強度數值)
+       16. Texture Map Size (材質貼圖尺寸)
+       17. Ambient Light (環境光源強度)
+       18. Point Lights (點光源開關)
+       19. Ambient Shadows (環境陰影開關)
+       20. Point Shadows (點光源陰影開關)
+       21. Sky On (天空渲染開關)
+       22. Hires Textures Off (關閉高解析材質)
+       23. Use 32x32 Hires Textures (使用 32x32 高解析貼圖)
+       24. Footsteps (腳印痕跡開關)
+       25. Animating Water (水面動態效果)
+       26. No Formations (關閉隊形演算)
+       27. Show Formation Points (顯示隊形定位點)
+       28. Frame Limit min ticks (幀率限制最小 Tick 數)
+       29. Computer Player off (關閉電腦 AI 玩家運算)
+       30. People panel (人口狀態面板)
+       31. no jan navigation (關閉 Jan 路徑導航)
+       32. Full Map Sync Check (全地圖同步檢查)
+       33. Show Jav Points (顯示 Jav 路徑導航節點)
+       34. Computer jnav work path len (電腦 AI 路徑運算長度)
+       35. Human jav work path len (人類玩家路徑運算長度)
+       36. Computer Jav calls per frame (電腦每幀導航計算次數)
+       37. Human jnav calls per frame (人類每幀導航計算次數)
+       38. Auto Guarding off (關閉信徒自動巡邏防守)
+       39. Blow damage off (關閉擊飛/衝擊傷害)
+       40. Camera Zoom on (鏡頭縮放功能開啟)
+       41. Sound Volume (音效音量大小)
+       42. Music Volume (音樂音量大小)
+       43. Sea On (海洋水體渲染開關)
+       44. Island Level (島嶼海平面高度調整)
+       45. CD Track (CD 音軌選首切換)
+       46. Local Drag Select Off (關閉本機框選拖曳選取)
+       47. Jnav max count (導航節點最大上限數)
+       48. Fog of war (戰爭迷霧開關)
+       49. Auto use vehicles (信徒自動使用船隻/載具)
+       50. Maintain minimum population (維持最低人口底限機制)
+       51. Continuous raise/lower (地形連續升降模式)
+       52. Allow cursor snap (允許滑鼠游標自動吸附格線)
+       53. Game turns per second (遊戲每秒邏輯運算回合計時)
+       54. Draw Turns per second (畫面每秒渲染回合數)
+       55. Show flat areas darkened (平坦可建造地塊以暗色高亮顯示)
+       56. Scaling spires always (永久縮放尖頂建築物件)
+       57. Show attack areas (顯示法術與戰鬥攻擊範圍判定)
+       58. Show wood search data (顯示信徒砍樹尋找木材數據)
+       59. Check mapwho integrity (檢查地圖網格空間分割完整性)
+       60. Use buildings entrance alt (使用建築物備用出入口)
+       61. Ok (狀態確認)
+       62. Tooltips (滑鼠懸停提示資訊開關)
+       63. Auto Camera adjust (鏡頭視角自動跟隨調整)
+       64. Lens Flare (太陽鏡頭眩光特效)
+       65. Panel sound effects off (關閉操作面板點擊音效)
+       66. Human shaman omnipresence (人類巫師全知全能/無所不在)
+       67. Owned Target select (自身目標指定選取)
+       68. Autocast spell (法術自動施放開關)
+       69. Scrolling tool tips (捲動提示條訊息)
+       70. Flip Rotation (鏡頭旋轉方向反轉翻轉)
+       71. Auto Deselect (自動取消選取功能)
+       72. Swap Rotate/Move (鏡頭旋轉與移動鍵位互換)
+
 ---
 
 ### 📂 檔案編碼與格式規範 (File Encodings & Formats)
@@ -165,6 +259,29 @@ A comprehensive modernization, bug-fix, and Traditional Chinese localization too
      - **Advanced Gameplay Features**: Injects DLL-level enhancements including new spells, buildings, unit mechanics (e.g. Firewarrior pushback), and physics fixes.
      - **Multiplayer Lobby**: Built-in online matchmaking and spectating system.
    - **Compatibility**: Fully compatible with our Traditional Chinese localization patch and our native `dinput.dll` modern mouse controls!
+
+6. **In-Game Cheats & Debug Mode Guide**
+   - **Important Prerequisites (Must Read)**:
+     - **Windows Keyboard Layout**: Always switch Windows IME to English (ENG or press Win + Space). Chinese or third-party IMEs will intercept keystrokes before DirectInput can register them.
+     - **Laptop Keyboards**: If your laptop functions map F1–F12 to multimedia/brightness keys by default, hold Fn while pressing the shortcuts (e.g., Fn + Tab + F11).
+   - **Activating Cheat Console**:
+     1. Enter any single-player campaign or skirmish game.
+     2. Press **Tab + F11** simultaneously to open the chat/console prompt.
+     3. Type **BYRNE** (case-insensitive) and press **Enter**.
+     4. A confirmation indicates cheat mode is active.
+   - **Cheat Shortcut Combinations**:
+     | Shortcut | Effect |
+     | :--- | :--- |
+     | **Tab + F1** | Faster mana regeneration (press continuously) |
+     | **Tab + F2** | Free spells (cast without mana cost) |
+     | **Tab + F3** | Receive and unlock all spells |
+     | **Tab + F4** | Receive and unlock all building plans |
+     | **Tab + F5** | Instant max mana refill |
+     | **Shift + =** | Accelerate game simulation speed (up to 33x) |
+   - **Complete 72 Debug Mode Cheats**:
+     - **Usage**: Once cheats are activated, hold the letter **O** key and use **Arrow Up / Down (↑ / ↓)** to cycle through variables; use **Arrow Left / Right (← / →)** to toggle values.
+     - **Variables List (1–72)**:
+       1. Messages Off, 2. Auto Quick Save, 3. Sound, 4. Music Type, 5. Sync Checking, 6. No Draw, 7. No Sprites Draw, 8. Pause on out of sync, 9. No Texture Mapping, 10. No poly draw, 11. No Objects Draw, 12. Plan View Hide Enemy People, 13. Plan View Hide Enemy buildings, 14. Scroll Momentum, 15. Scroll momentum amount, 16. Texture Map Size, 17. Ambient Light, 18. Point Lights, 19. Ambient Shadows, 20. Point Shadows, 21. Sky On, 22. Hires Textures Off, 23. Use 32x32 Hires Textures, 24. Footsteps, 25. Animating Water, 26. No Formations, 27. Show Formation Points, 28. Frame Limit min ticks, 29. Computer Player off, 30. People panel, 31. no jan navigation, 32. Full Map Sync Check, 33. Show Jav Points, 34. Computer jnav work path len, 35. Human jav work path len, 36. Computer Jav calls per frame, 37. Human jnav calls per frame, 38. Auto Guarding off, 39. Blow damage off, 40. Camera Zoom on, 41. Sound Volume, 42. Music Volume, 43. Sea On, 44. Island Level, 45. CD Track, 46. Local Drag Select Off, 47. Jnav max count, 48. Fog of war, 49. Auto use vehicles, 50. Maintain minimum population, 51. Continuous raise/lower, 52. Allow cursor snap, 53. Game turns per second, 54. Draw Turns per second, 55. Show flat areas darkened, 56. Scaling spires always, 57. Show attack areas, 58. Show wood search data, 59. Check mapwho integrity, 60. Use buildings entrance alt, 61. Ok, 62. Tooltips, 63. Auto Camera adjust, 64. Lens Flare, 65. Panel sound effects off, 66. Human shaman omnipresence, 67. Owned Target select, 68. Autocast spell, 69. Scrolling tool tips, 70. Flip Rotation, 71. Auto Deselect, 72. Swap Rotate/Move
 
 ---
 
