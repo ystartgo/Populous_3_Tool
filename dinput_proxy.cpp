@@ -19,38 +19,68 @@ static int g_DebugLog = 0;
 // Flag to track whether the active ground action was initiated by Physical Right Click
 static volatile int g_IsPhysicalRightClick = 0;
 
-static uintptr_t g_ContinueAddr = 0;
-static uintptr_t g_ExitAddr = 0;
+// 1. Single-unit / Shaman Move Hook (VA 0x00427b20)
+static uintptr_t g_SingleMoveTarget = 0x00427b20;
+static uintptr_t g_SingleMoveContinue = 0x00427b27;
 
-// Hook function at 0x00428723 (Populous Follower Move Command in D3DPopTB.exe)
-__attribute__((naked)) void Hook_MoveCheck() {
+__attribute__((naked)) void Hook_SingleMove() {
     __asm__ (
-        // Test if this move command was triggered by Physical Right Click
+        // Test if this is a physical right click
         "movl %0, %%ecx\n\t"
         "testl %%ecx, %%ecx\n\t"
-        "jz 1f\n\t"
+        "jnz 2f\n\t"
         
-        // Physical Right Click:
-        // Reset flag to 0
+        // Physical Left Click: reject move! Return 0 cleanly
+        "1:\n\t"
+        "xorl %%eax, %%eax\n\t"
+        "ret\n\t"
+        
+        // Physical Right Click: allow move
+        "2:\n\t"
         "movl $0, %0\n\t"
-        // Execute original instructions:
-        // xor edx, edx
-        // test eax, eax
-        // jz exit
-        "xorl %%edx, %%edx\n\t"
-        "testl %%eax, %%eax\n\t"
-        "jz 1f\n\t"
-        // Jump to continue address (0x00428729) to issue Command 7 (MOVE)
+        // Execute original stolen 7 bytes:
+        // push esi
+        // push 0
+        // mov esi, dword ptr [esp + 0xc]
+        "pushl %%esi\n\t"
+        "pushl $0\n\t"
+        "movl 0xc(%%esp), %%esi\n\t"
+        // Jump to continue address
         "pushl %1\n\t"
         "ret\n\t"
+        :
+        : "m"(g_IsPhysicalRightClick), "m"(g_SingleMoveContinue)
+    );
+}
+
+// 2. Multi-unit Group Move Hook (VA 0x004286e0)
+static uintptr_t g_MultiMoveTarget = 0x004286e0;
+static uintptr_t g_MultiMoveContinue = 0x004286e7;
+
+__attribute__((naked)) void Hook_MultiMove() {
+    __asm__ (
+        // Test if this is a physical right click
+        "movl %0, %%ecx\n\t"
+        "testl %%ecx, %%ecx\n\t"
+        "jnz 2f\n\t"
         
-        // Physical Left Click or eax==0:
-        // Jump directly to exit address (0x004287a8) to suppress move command!
+        // Physical Left Click: reject move! Return immediately without executing move loop
         "1:\n\t"
-        "pushl %2\n\t"
+        "ret\n\t"
+        
+        // Physical Right Click: allow move
+        "2:\n\t"
+        "movl $0, %0\n\t"
+        // Execute original stolen 7 bytes:
+        // mov eax, dword ptr [esp + 4]
+        // sub esp, 8
+        "movl 0x4(%%esp), %%eax\n\t"
+        "subl $8, %%esp\n\t"
+        // Jump to continue address
+        "pushl %1\n\t"
         "ret\n\t"
         :
-        : "m"(g_IsPhysicalRightClick), "m"(g_ContinueAddr), "m"(g_ExitAddr)
+        : "m"(g_IsPhysicalRightClick), "m"(g_MultiMoveContinue)
     );
 }
 
@@ -101,51 +131,74 @@ static void InstallEnginePatch() {
     BYTE* base = (BYTE*)hMod;
     DWORD size = nt->OptionalHeader.SizeOfImage;
     
-    // Exact signature in D3DPopTB.exe for follower move command check:
-    // xor edx, edx; test eax, eax; jz +0x7f; xor edi, edi; cmp byte ptr [0x596c88], dl
-    static const BYTE sig[] = { 0x33, 0xd2, 0x85, 0xc0, 0x74, 0x7f, 0x33, 0xff, 0x38, 0x15, 0x88, 0x6c, 0x59, 0x00 };
-    BYTE* target = NULL;
-    
-    // Fast path: check known VA 0x00428723
-    if ((uintptr_t)hMod == 0x00400000 && !IsBadReadPtr((void*)0x00428723, sizeof(sig))) {
-        if (memcmp((void*)0x00428723, sig, sizeof(sig)) == 0) {
-            target = (BYTE*)0x00428723;
+    // 1. Single-Unit / Shaman Move Hook at 0x00427b20
+    // Signature: 56 6a 00 8b 74 24 0c 6a 07 56
+    static const BYTE sigSingle[] = { 0x56, 0x6a, 0x00, 0x8b, 0x74, 0x24, 0x0c, 0x6a, 0x07, 0x56 };
+    BYTE* targetSingle = NULL;
+    if ((uintptr_t)hMod == 0x00400000 && !IsBadReadPtr((void*)0x00427b20, sizeof(sigSingle))) {
+        if (memcmp((void*)0x00427b20, sigSingle, sizeof(sigSingle)) == 0) {
+            targetSingle = (BYTE*)0x00427b20;
         }
     }
-    
-    // Fallback: scan image
-    if (!target) {
-        for (DWORD i = 0; i < size - sizeof(sig); i++) {
-            if (base[i] == 0x33 && base[i+1] == 0xd2 && base[i+2] == 0x85 && base[i+3] == 0xc0) {
-                if (memcmp(base + i, sig, sizeof(sig)) == 0) {
-                    target = base + i;
+    if (!targetSingle) {
+        for (DWORD i = 0; i < size - sizeof(sigSingle); i++) {
+            if (base[i] == 0x56 && base[i+1] == 0x6a && base[i+2] == 0x00 && base[i+3] == 0x8b) {
+                if (memcmp(base + i, sigSingle, sizeof(sigSingle)) == 0) {
+                    targetSingle = base + i;
                     break;
                 }
             }
         }
     }
-    
-    if (!target) {
-        Log("Engine signature for MoveCheck not found in process image\n");
-        return;
+    if (targetSingle) {
+        g_SingleMoveContinue = (uintptr_t)(targetSingle + 7);
+        DWORD oldProtect;
+        if (VirtualProtect(targetSingle, 16, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+            DWORD rel = (DWORD)(uintptr_t)Hook_SingleMove - (DWORD)(uintptr_t)targetSingle - 5;
+            targetSingle[0] = 0xE9; // JMP rel32
+            *(DWORD*)(targetSingle + 1) = rel;
+            targetSingle[5] = 0x90; // NOP
+            targetSingle[6] = 0x90; // NOP
+            VirtualProtect(targetSingle, 16, oldProtect, &oldProtect);
+            Log("Installed Hook_SingleMove at %p successfully!\n", targetSingle);
+        }
+    } else {
+        Log("Failed to locate SingleMove function in process\n");
     }
     
-    g_ContinueAddr = (uintptr_t)(target + 6);
-    signed char relExit = (signed char)target[5];
-    g_ExitAddr = (uintptr_t)(target + 6 + relExit);
-    
-    Log("Found MoveCheck at %p: continue=%p, exit=%p\n", target, (void*)g_ContinueAddr, (void*)g_ExitAddr);
-    
-    DWORD oldProtect;
-    if (VirtualProtect(target, 16, PAGE_EXECUTE_READWRITE, &oldProtect)) {
-        DWORD rel = (DWORD)(uintptr_t)Hook_MoveCheck - (DWORD)(uintptr_t)target - 5;
-        target[0] = 0xE9; // JMP rel32
-        *(DWORD*)(target + 1) = rel;
-        target[5] = 0x90; // NOP
-        VirtualProtect(target, 16, oldProtect, &oldProtect);
-        Log("Installed Left-Click Move Suppression Hook at %p successfully!\n", target);
+    // 2. Multi-Unit Group Move Hook at 0x004286e0
+    // Signature: 8b 44 24 04 83 ec 08 53 56 57 55 50
+    static const BYTE sigMulti[] = { 0x8b, 0x44, 0x24, 0x04, 0x83, 0xec, 0x08, 0x53, 0x56, 0x57, 0x55, 0x50 };
+    BYTE* targetMulti = NULL;
+    if ((uintptr_t)hMod == 0x00400000 && !IsBadReadPtr((void*)0x004286e0, sizeof(sigMulti))) {
+        if (memcmp((void*)0x004286e0, sigMulti, sizeof(sigMulti)) == 0) {
+            targetMulti = (BYTE*)0x004286e0;
+        }
+    }
+    if (!targetMulti) {
+        for (DWORD i = 0; i < size - sizeof(sigMulti); i++) {
+            if (base[i] == 0x8b && base[i+1] == 0x44 && base[i+2] == 0x24 && base[i+3] == 0x04) {
+                if (memcmp(base + i, sigMulti, sizeof(sigMulti)) == 0) {
+                    targetMulti = base + i;
+                    break;
+                }
+            }
+        }
+    }
+    if (targetMulti) {
+        g_MultiMoveContinue = (uintptr_t)(targetMulti + 7);
+        DWORD oldProtect;
+        if (VirtualProtect(targetMulti, 16, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+            DWORD rel = (DWORD)(uintptr_t)Hook_MultiMove - (DWORD)(uintptr_t)targetMulti - 5;
+            targetMulti[0] = 0xE9; // JMP rel32
+            *(DWORD*)(targetMulti + 1) = rel;
+            targetMulti[5] = 0x90; // NOP
+            targetMulti[6] = 0x90; // NOP
+            VirtualProtect(targetMulti, 16, oldProtect, &oldProtect);
+            Log("Installed Hook_MultiMove at %p successfully!\n", targetMulti);
+        }
     } else {
-        Log("Failed to VirtualProtect target at %p\n", target);
+        Log("Failed to locate MultiMove function in process\n");
     }
 }
 
@@ -201,7 +254,7 @@ static HRESULT STDMETHODCALLTYPE Hooked_GetDeviceData(IDirectInputDeviceA* pThis
                 if (item->dwOfs == DIMOFS_BUTTON1) { // Physical Right Click
                     BOOL shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
                     if (!shift || !g_ShiftReverts) {
-                        // Mark physical right click active for engine move handler
+                        // Mark physical right click active for engine move handlers
                         if (item->dwData & 0x80) {
                             g_IsPhysicalRightClick = 1;
                         }
@@ -230,7 +283,7 @@ static HRESULT STDMETHODCALLTYPE Hooked_GetDeviceState(IDirectInputDeviceA* pThi
     if (SUCCEEDED(hr) && pThis == g_pMouseDevice && lpvData != NULL && cbData >= sizeof(DIMOUSESTATE)) {
         if (g_EnableRightClickMove) {
             DIMOUSESTATE* ms = (DIMOUSESTATE*)lpvData;
-            if (ms->rgbButtons[1] & 0x80) { // Right button down
+            if (ms->rgbButtons[1] & 0x80) { // Physical right button down
                 BOOL shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
                 if (!shift || !g_ShiftReverts) {
                     g_IsPhysicalRightClick = 1;
