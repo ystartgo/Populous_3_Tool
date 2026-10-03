@@ -65,27 +65,55 @@ __asm__(
 
 static int g_ShiftReverts = 1;
 
+static inline bool IsMoveAction(int a) {
+    return a == 126 || a == 109 || a == 106;
+}
+
+static inline bool IsDeselectAction(int a) {
+    return a == 131 || a == 108;
+}
+
+static inline int ToMoveAction(int a) {
+    if (a == 108) return 109;
+    return 126;
+}
+
+static inline int ToDeselectAction(int a) {
+    if (a == 109 || a == 106) return 108;
+    return 131;
+}
+
 extern "C" int __attribute__((cdecl)) MyLookup(void* table, int key, int mods, int type) {
     int k = key & 0xFF;
+    int t = type & 0xFF;
     BYTE mode = *(volatile BYTE*)VA_INPUTMODE;
 
-    if (g_EnableRightClickMove && g_ModernControls &&
-        mode == MODE_SELECTED && (type & 0xFF) == TYPE_RELEASE &&
-        (k == KEY_LMB || k == KEY_RMB)) {
-        if (k == KEY_RMB && g_ShiftReverts && (GetAsyncKeyState(VK_SHIFT) & 0x8000)) {
-            int action = Tramp_Lookup(table, key, mods, type);
-            Log("[SHIFT-RMB] mode=0x%02x key=0x%02x action=%d\n", mode, k, action);
-            return action;
+    int origAction = Tramp_Lookup(table, key, mods, type);
+
+    if (g_EnableRightClickMove && g_ModernControls && t == TYPE_RELEASE) {
+        // LMB release: If it was going to MOVE, turn it into DESELECT
+        if (k == KEY_LMB && IsMoveAction(origAction)) {
+            int deselectAction = ToDeselectAction(origAction);
+            Log("[MODERN] LMB release move(%d) -> DESELECT(%d) mode=0x%02x\n", origAction, deselectAction, mode);
+            return deselectAction;
         }
-        int swapped = (k == KEY_LMB) ? KEY_RMB : KEY_LMB;
-        int action = Tramp_Lookup(table, swapped, mods, type);
-        Log("[SWAP] mode=0x%02x key=0x%02x -> as 0x%02x, action=%d\n", mode, k, swapped, action);
-        return action;
+
+        // RMB release: If it was going to DESELECT (or in selection mode), turn it into MOVE
+        if (k == KEY_RMB && (IsDeselectAction(origAction) || (origAction == 0 && (mode == 0x0C || mode == 0x0D || mode == 0x10)))) {
+            if (g_ShiftReverts && (GetAsyncKeyState(VK_SHIFT) & 0x8000)) {
+                Log("[SHIFT-RMB] Keep orig action=%d mode=0x%02x\n", origAction, mode);
+                return origAction;
+            }
+            int moveAction = IsDeselectAction(origAction) ? ToMoveAction(origAction) : 126;
+            Log("[MODERN] RMB release action(%d) -> MOVE(%d) mode=0x%02x\n", origAction, moveAction, mode);
+            return moveAction;
+        }
     }
-    int action = Tramp_Lookup(table, key, mods, type);
-    if (k == KEY_LMB || k == KEY_RMB)
-        Log("[ORIG] mode=0x%02x key=0x%02x type=%d action=%d\n", mode, k, type & 0xFF, action);
-    return action;
+
+    if (k == KEY_LMB || k == KEY_RMB) {
+        Log("[PASS] mode=0x%02x key=0x%02x type=%d action=%d\n", mode, k, t, origAction);
+    }
+    return origAction;
 }
 
 // Entry from 0x004172A0: ecx = table, [esp+4]=key, [esp+8]=mods, [esp+0xC]=type
