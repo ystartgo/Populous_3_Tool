@@ -14,10 +14,12 @@ static IDirectInputDeviceA* g_pMouseDevice = NULL;
 static int g_EnableRightClickMove = 1;
 static int g_ModernControls = 1;
 static int g_ShiftReverts = 1;
-static int g_DebugLog = 0;
+static int g_MiddleClickRotatesCamera = 1;
+static int g_DebugLog = 1;
 
-// Flag to track whether the active ground action was initiated by Physical Right Click
+// Tracks physical right click status and timestamp
 static volatile int g_IsPhysicalRightClick = 0;
+static volatile DWORD g_LastRightClickTick = 0;
 
 static void Log(const char* fmt, ...) {
     if (!g_DebugLog) return;
@@ -36,99 +38,82 @@ static void Log(const char* fmt, ...) {
     fclose(f);
 }
 
-// 1. Mouse Ground Target Assignment Hook (VA 0x0047db60)
-static uintptr_t g_GroundTargetTarget = 0x0047db60;
-static uintptr_t g_GroundTargetContinue = 0x0047db68;
-
-__attribute__((naked)) void Hook_GroundTarget() {
-    __asm__ (
-        // Test if this is a physical right click
-        "movl %0, %%ecx\n\t"
-        "testl %%ecx, %%ecx\n\t"
-        "jnz 2f\n\t"
-        
-        // Physical Left Click: reject ground move command! Return immediately without moving
-        "1:\n\t"
-        "ret\n\t"
-        
-        // Physical Right Click: allow ground move
-        "2:\n\t"
-        "movl $0, %0\n\t"
-        // Execute original stolen 8 bytes:
-        // sub esp, 8
-        // mov byte ptr [esp + 3], 0
-        "subl $8, %%esp\n\t"
-        "movb $0, 3(%%esp)\n\t"
-        // Jump to continue address
-        "pushl %1\n\t"
-        "ret\n\t"
-        :
-        : "m"(g_IsPhysicalRightClick), "m"(g_GroundTargetContinue)
-    );
+static void HideSystemCursor() {
+    // Keep internal cursor display counter negative so Windows desktop cursor is never drawn
+    while (ShowCursor(FALSE) >= 0);
 }
 
-// 2. Single-unit / Shaman Move Hook (VA 0x00427b20)
-static uintptr_t g_SingleMoveTarget = 0x00427b20;
-static uintptr_t g_SingleMoveContinue = 0x00427b27;
+// Check whether a command queued through 0x004d71d0 is allowed
+extern "C" int __attribute__((cdecl)) CheckCommandAllowed(int unitIdx, int playerIdx, int cmdId, int target) {
+    // If not Move command (cmdId != 7), always allow (e.g. spells, attack, build, etc.)
+    if (cmdId != 7) {
+        return 1;
+    }
+    
+    // If modern controls disabled, allow original behavior
+    if (!g_EnableRightClickMove || !g_ModernControls) {
+        return 1;
+    }
+    
+    // If command is for AI players (playerIdx != 0 in single-player), allow unconditionally
+    if (playerIdx != 0) {
+        return 1;
+    }
+    
+    // Command 7 (MOVE) for Player 0 (local human player):
+    DWORD now = GetTickCount();
+    int isRightClick = g_IsPhysicalRightClick || 
+                       ((GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0) ||
+                       ((now - g_LastRightClickTick) < 500);
+                       
+    if (isRightClick) {
+        Log("[CMD-ALLOW] Move command 7 allowed (unit=%d, target=0x%x)\n", unitIdx, target);
+        return 1;
+    } else {
+        Log("[CMD-BLOCK] Blocked Left-Click Move command 7 (unit=%d, target=0x%x)\n", unitIdx, target);
+        return 0; // REJECT: prevents left click on ground from moving units!
+    }
+}
 
-__attribute__((naked)) void Hook_SingleMove() {
+// Hook on QueuePlayerCommand at VA 0x004d71d0
+static uintptr_t g_QueueCommandContinue = 0x004d71d5;
+
+__attribute__((naked)) void Hook_QueueCommand() {
     __asm__ (
-        // Test if this is a physical right click
-        "movl %0, %%ecx\n\t"
-        "testl %%ecx, %%ecx\n\t"
-        "jnz 2f\n\t"
+        // Stack at function entry:
+        // [esp + 0x00]: return address
+        // [esp + 0x04]: unitIdx
+        // [esp + 0x08]: playerIdx
+        // [esp + 0x0C]: cmdId
+        // [esp + 0x10]: target
         
-        // Physical Left Click: reject move! Return 0 cleanly
-        "1:\n\t"
-        "xorl %%eax, %%eax\n\t"
+        // Push arguments for CheckCommandAllowed(unitIdx, playerIdx, cmdId, target)
+        "pushl 0x10(%%esp)\n\t" // target (at esp + 0x10)
+        "pushl 0x10(%%esp)\n\t" // cmdId (was at 0x0C, now at 0x10)
+        "pushl 0x10(%%esp)\n\t" // playerIdx (was at 0x08, now at 0x10)
+        "pushl 0x10(%%esp)\n\t" // unitIdx (was at 0x04, now at 0x10)
+        
+        "call *%1\n\t"          // call CheckCommandAllowed
+        "addl $16, %%esp\n\t"   // clean up arguments
+        
+        "testl %%eax, %%eax\n\t"
+        "jnz 1f\n\t"
+        
+        // Command blocked: return immediately without queueing
         "ret\n\t"
         
-        // Physical Right Click: allow move
-        "2:\n\t"
-        "movl $0, %0\n\t"
-        // Execute original stolen 7 bytes:
-        // push esi
-        // push 0
-        // mov esi, dword ptr [esp + 0xc]
+        // Command allowed: execute original stolen 5 bytes:
+        // 0x4d71d0: mov edx, dword ptr [esp + 8]
+        // 0x4d71d4: push esi
+        "1:\n\t"
+        "movl 0x8(%%esp), %%edx\n\t"
         "pushl %%esi\n\t"
-        "pushl $0\n\t"
-        "movl 0xc(%%esp), %%esi\n\t"
-        // Jump to continue address
-        "pushl %1\n\t"
+        
+        // Jump to continue address 0x004d71d5
+        "pushl %0\n\t"
         "ret\n\t"
         :
-        : "m"(g_IsPhysicalRightClick), "m"(g_SingleMoveContinue)
-    );
-}
-
-// 3. Multi-unit Group Move Hook (VA 0x004286e0)
-static uintptr_t g_MultiMoveTarget = 0x004286e0;
-static uintptr_t g_MultiMoveContinue = 0x004286e7;
-
-__attribute__((naked)) void Hook_MultiMove() {
-    __asm__ (
-        // Test if this is a physical right click
-        "movl %0, %%ecx\n\t"
-        "testl %%ecx, %%ecx\n\t"
-        "jnz 2f\n\t"
-        
-        // Physical Left Click: reject move! Return immediately without executing move loop
-        "1:\n\t"
-        "ret\n\t"
-        
-        // Physical Right Click: allow move
-        "2:\n\t"
-        "movl $0, %0\n\t"
-        // Execute original stolen 7 bytes:
-        // mov eax, dword ptr [esp + 4]
-        // sub esp, 8
-        "movl 0x4(%%esp), %%eax\n\t"
-        "subl $8, %%esp\n\t"
-        // Jump to continue address
-        "pushl %1\n\t"
-        "ret\n\t"
-        :
-        : "m"(g_IsPhysicalRightClick), "m"(g_MultiMoveContinue)
+        : "m"(g_QueueCommandContinue), "r"(CheckCommandAllowed)
     );
 }
 
@@ -168,108 +153,37 @@ static void InstallEnginePatch() {
     BYTE* base = (BYTE*)hMod;
     DWORD size = nt->OptionalHeader.SizeOfImage;
     
-    // 1. Hook Mouse Ground Target Assignment (VA 0x0047db60)
-    // Signature: 83 ec 08 c6 44 24 03 00 53 56 57 55
-    static const BYTE sigGround[] = { 0x83, 0xec, 0x08, 0xc6, 0x44, 0x24, 0x03, 0x00, 0x53, 0x56, 0x57, 0x55 };
-    BYTE* targetGround = NULL;
-    if ((uintptr_t)hMod == 0x00400000 && !IsBadReadPtr((void*)0x0047db60, sizeof(sigGround))) {
-        if (memcmp((void*)0x0047db60, sigGround, sizeof(sigGround)) == 0) {
-            targetGround = (BYTE*)0x0047db60;
+    // Signature of 0x004d71d0:
+    // 8b 54 24 08 56 8b 4c 24 08 8d 04 d2 8d 04 c0 03
+    static const BYTE sigQueueCmd[] = { 0x8b, 0x54, 0x24, 0x08, 0x56, 0x8b, 0x4c, 0x24, 0x08, 0x8d, 0x04, 0xd2, 0x8d, 0x04, 0xc0, 0x03 };
+    BYTE* targetQueueCmd = NULL;
+    if ((uintptr_t)hMod == 0x00400000 && !IsBadReadPtr((void*)0x004d71d0, sizeof(sigQueueCmd))) {
+        if (memcmp((void*)0x004d71d0, sigQueueCmd, sizeof(sigQueueCmd)) == 0) {
+            targetQueueCmd = (BYTE*)0x004d71d0;
         }
     }
-    if (!targetGround) {
-        for (DWORD i = 0; i < size - sizeof(sigGround); i++) {
-            if (base[i] == 0x83 && base[i+1] == 0xec && base[i+2] == 0x08 && base[i+3] == 0xc6) {
-                if (memcmp(base + i, sigGround, sizeof(sigGround)) == 0) {
-                    targetGround = base + i;
+    if (!targetQueueCmd) {
+        for (DWORD i = 0; i < size - sizeof(sigQueueCmd); i++) {
+            if (base[i] == 0x8b && base[i+1] == 0x54 && base[i+2] == 0x24 && base[i+3] == 0x08 && base[i+4] == 0x56) {
+                if (memcmp(base + i, sigQueueCmd, sizeof(sigQueueCmd)) == 0) {
+                    targetQueueCmd = base + i;
                     break;
                 }
             }
         }
     }
-    if (targetGround) {
-        g_GroundTargetContinue = (uintptr_t)(targetGround + 8);
+    if (targetQueueCmd) {
+        g_QueueCommandContinue = (uintptr_t)(targetQueueCmd + 5);
         DWORD oldProtect;
-        if (VirtualProtect(targetGround, 16, PAGE_EXECUTE_READWRITE, &oldProtect)) {
-            DWORD rel = (DWORD)(uintptr_t)Hook_GroundTarget - (DWORD)(uintptr_t)targetGround - 5;
-            targetGround[0] = 0xE9; // JMP rel32
-            *(DWORD*)(targetGround + 1) = rel;
-            targetGround[5] = 0x90; // NOP
-            targetGround[6] = 0x90; // NOP
-            targetGround[7] = 0x90; // NOP
-            VirtualProtect(targetGround, 16, oldProtect, &oldProtect);
-            Log("Installed Hook_GroundTarget at %p successfully!\n", targetGround);
+        if (VirtualProtect(targetQueueCmd, 16, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+            DWORD rel = (DWORD)(uintptr_t)Hook_QueueCommand - (DWORD)(uintptr_t)targetQueueCmd - 5;
+            targetQueueCmd[0] = 0xE9; // JMP rel32
+            *(DWORD*)(targetQueueCmd + 1) = rel;
+            VirtualProtect(targetQueueCmd, 16, oldProtect, &oldProtect);
+            Log("Installed Hook_QueueCommand at %p successfully!\n", targetQueueCmd);
         }
     } else {
-        Log("Failed to locate GroundTarget function in process\n");
-    }
-    
-    // 2. Single-Unit / Shaman Move Hook at 0x00427b20
-    static const BYTE sigSingle[] = { 0x56, 0x6a, 0x00, 0x8b, 0x74, 0x24, 0x0c, 0x6a, 0x07, 0x56 };
-    BYTE* targetSingle = NULL;
-    if ((uintptr_t)hMod == 0x00400000 && !IsBadReadPtr((void*)0x00427b20, sizeof(sigSingle))) {
-        if (memcmp((void*)0x00427b20, sigSingle, sizeof(sigSingle)) == 0) {
-            targetSingle = (BYTE*)0x00427b20;
-        }
-    }
-    if (!targetSingle) {
-        for (DWORD i = 0; i < size - sizeof(sigSingle); i++) {
-            if (base[i] == 0x56 && base[i+1] == 0x6a && base[i+2] == 0x00 && base[i+3] == 0x8b) {
-                if (memcmp(base + i, sigSingle, sizeof(sigSingle)) == 0) {
-                    targetSingle = base + i;
-                    break;
-                }
-            }
-        }
-    }
-    if (targetSingle) {
-        g_SingleMoveContinue = (uintptr_t)(targetSingle + 7);
-        DWORD oldProtect;
-        if (VirtualProtect(targetSingle, 16, PAGE_EXECUTE_READWRITE, &oldProtect)) {
-            DWORD rel = (DWORD)(uintptr_t)Hook_SingleMove - (DWORD)(uintptr_t)targetSingle - 5;
-            targetSingle[0] = 0xE9; // JMP rel32
-            *(DWORD*)(targetSingle + 1) = rel;
-            targetSingle[5] = 0x90; // NOP
-            targetSingle[6] = 0x90; // NOP
-            VirtualProtect(targetSingle, 16, oldProtect, &oldProtect);
-            Log("Installed Hook_SingleMove at %p successfully!\n", targetSingle);
-        }
-    } else {
-        Log("Failed to locate SingleMove function in process\n");
-    }
-    
-    // 3. Multi-Unit Group Move Hook at 0x004286e0
-    static const BYTE sigMulti[] = { 0x8b, 0x44, 0x24, 0x04, 0x83, 0xec, 0x08, 0x53, 0x56, 0x57, 0x55, 0x50 };
-    BYTE* targetMulti = NULL;
-    if ((uintptr_t)hMod == 0x00400000 && !IsBadReadPtr((void*)0x004286e0, sizeof(sigMulti))) {
-        if (memcmp((void*)0x004286e0, sigMulti, sizeof(sigMulti)) == 0) {
-            targetMulti = (BYTE*)0x004286e0;
-        }
-    }
-    if (!targetMulti) {
-        for (DWORD i = 0; i < size - sizeof(sigMulti); i++) {
-            if (base[i] == 0x8b && base[i+1] == 0x44 && base[i+2] == 0x24 && base[i+3] == 0x04) {
-                if (memcmp(base + i, sigMulti, sizeof(sigMulti)) == 0) {
-                    targetMulti = base + i;
-                    break;
-                }
-            }
-        }
-    }
-    if (targetMulti) {
-        g_MultiMoveContinue = (uintptr_t)(targetMulti + 7);
-        DWORD oldProtect;
-        if (VirtualProtect(targetMulti, 16, PAGE_EXECUTE_READWRITE, &oldProtect)) {
-            DWORD rel = (DWORD)(uintptr_t)Hook_MultiMove - (DWORD)(uintptr_t)targetMulti - 5;
-            targetMulti[0] = 0xE9; // JMP rel32
-            *(DWORD*)(targetMulti + 1) = rel;
-            targetMulti[5] = 0x90; // NOP
-            targetMulti[6] = 0x90; // NOP
-            VirtualProtect(targetMulti, 16, oldProtect, &oldProtect);
-            Log("Installed Hook_MultiMove at %p successfully!\n", targetMulti);
-        }
-    } else {
-        Log("Failed to locate MultiMove function in process\n");
+        Log("Failed to locate QueuePlayerCommand at 0x004d71d0 in process\n");
     }
 }
 
@@ -285,7 +199,8 @@ static void LoadConfig() {
     g_EnableRightClickMove = GetPrivateProfileIntA("Mouse", "EnableRightClickMove", 1, iniPath);
     g_ModernControls = GetPrivateProfileIntA("Mouse", "ModernControls", 1, iniPath);
     g_ShiftReverts = GetPrivateProfileIntA("Mouse", "ShiftRevertsToRightClick", 1, iniPath);
-    g_DebugLog = GetPrivateProfileIntA("Mouse", "DebugLog", 0, iniPath);
+    g_MiddleClickRotatesCamera = GetPrivateProfileIntA("Mouse", "MiddleClickRotatesCamera", 1, iniPath);
+    g_DebugLog = GetPrivateProfileIntA("Mouse", "DebugLog", 1, iniPath);
 }
 
 static void LoadRealDInput() {
@@ -315,6 +230,7 @@ static void LoadRealDInput() {
 }
 
 static HRESULT STDMETHODCALLTYPE Hooked_GetDeviceData(IDirectInputDeviceA* pThis, DWORD cbObjectData, LPDIDEVICEOBJECTDATA rgdod, LPDWORD pdwInOut, DWORD dwFlags) {
+    HideSystemCursor();
     HRESULT hr = real_GetDeviceData(pThis, cbObjectData, rgdod, pdwInOut, dwFlags);
     if (SUCCEEDED(hr) && rgdod != NULL && pdwInOut != NULL && *pdwInOut > 0) {
         if (g_EnableRightClickMove) {
@@ -322,23 +238,33 @@ static HRESULT STDMETHODCALLTYPE Hooked_GetDeviceData(IDirectInputDeviceA* pThis
             for (DWORD i = 0; i < count; i++) {
                 LPDIDEVICEOBJECTDATA item = (LPDIDEVICEOBJECTDATA)((BYTE*)rgdod + i * cbObjectData);
                 
-                if (item->dwOfs == DIMOFS_BUTTON1) { // Physical Right Click
+                // Middle click -> original right click (Camera Rotate)
+                if (item->dwOfs == DIMOFS_BUTTON2 && g_MiddleClickRotatesCamera) {
+                    item->dwOfs = DIMOFS_BUTTON1;
+                    Log("[DINPUT] Remapped Middle Click -> Original Right Click (Camera Rotate)\n");
+                }
+                // Physical Right Click -> Left Click (Orders the action in-game)
+                else if (item->dwOfs == DIMOFS_BUTTON1) {
                     BOOL shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
                     if (!shift || !g_ShiftReverts) {
-                        if (item->dwData & 0x80) {
+                        if (item->dwData & 0x80) { // Pressed down
                             g_IsPhysicalRightClick = 1;
+                            g_LastRightClickTick = GetTickCount();
+                        } else { // Released
+                            g_IsPhysicalRightClick = 0;
                         }
                         item->dwOfs = DIMOFS_BUTTON0;
-                        Log("[DINPUT-DATA] Remapped Right Click -> Left Click (dwData=0x%lx, g_IsPhysicalRightClick=%d)\n", item->dwData, g_IsPhysicalRightClick);
+                        Log("[DINPUT-DATA] Remapped Right Click -> Left Click (dwData=0x%lx)\n", item->dwData);
                     } else {
                         Log("[DINPUT-DATA] Passed through Right Click (Shift held)\n");
                     }
                 }
-                else if (item->dwOfs == DIMOFS_BUTTON0) { // Physical Left Click
-                    if (item->dwData & 0x80) {
+                // Physical Left Click
+                else if (item->dwOfs == DIMOFS_BUTTON0) {
+                    if (item->dwData & 0x80) { // Pressed down
                         g_IsPhysicalRightClick = 0;
+                        g_LastRightClickTick = 0;
                     }
-                    Log("[DINPUT-DATA] Left Click (dwData=0x%lx, g_IsPhysicalRightClick=%d)\n", item->dwData, g_IsPhysicalRightClick);
                 }
             }
         }
@@ -347,20 +273,28 @@ static HRESULT STDMETHODCALLTYPE Hooked_GetDeviceData(IDirectInputDeviceA* pThis
 }
 
 static HRESULT STDMETHODCALLTYPE Hooked_GetDeviceState(IDirectInputDeviceA* pThis, DWORD cbData, LPVOID lpvData) {
+    HideSystemCursor();
     HRESULT hr = real_GetDeviceState(pThis, cbData, lpvData);
     if (SUCCEEDED(hr) && lpvData != NULL && cbData >= sizeof(DIMOUSESTATE)) {
         if (g_EnableRightClickMove) {
             DIMOUSESTATE* ms = (DIMOUSESTATE*)lpvData;
-            if (ms->rgbButtons[1] & 0x80) { // Physical right button down
+            // Middle button -> right button
+            if ((ms->rgbButtons[2] & 0x80) && g_MiddleClickRotatesCamera) {
+                ms->rgbButtons[1] = ms->rgbButtons[2];
+                ms->rgbButtons[2] = 0;
+            }
+            // Physical right button
+            if (ms->rgbButtons[1] & 0x80) {
                 BOOL shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
                 if (!shift || !g_ShiftReverts) {
                     g_IsPhysicalRightClick = 1;
+                    g_LastRightClickTick = GetTickCount();
                     ms->rgbButtons[0] = ms->rgbButtons[1];
                     ms->rgbButtons[1] = 0;
-                    Log("[DINPUT-STATE] Remapped Right Button Down -> Left Button Down\n");
                 }
             } else if (ms->rgbButtons[0] & 0x80) {
                 g_IsPhysicalRightClick = 0;
+                g_LastRightClickTick = 0;
             }
         }
     }
@@ -372,6 +306,7 @@ static HRESULT STDMETHODCALLTYPE Hooked_CreateDevice(IDirectInputA* pThis, REFGU
     if (SUCCEEDED(hr) && lplpDirectInputDevice && *lplpDirectInputDevice) {
         g_pMouseDevice = *lplpDirectInputDevice;
         Log("DirectInput device created: %p (rguid=%08x)\n", g_pMouseDevice, rguid.Data1);
+        HideSystemCursor();
         
         DWORD oldProtect;
         if (VirtualProtect(g_pMouseDevice->lpVtbl, sizeof(IDirectInputDeviceAVtbl), PAGE_EXECUTE_READWRITE, &oldProtect)) {
@@ -452,6 +387,8 @@ HRESULT STDAPICALLTYPE Proxy_DllUnregisterServer(void) {
 BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
     if (fdwReason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(hinstDLL);
+        HideSystemCursor();
+        LoadRealDInput();
     }
     return TRUE;
 }

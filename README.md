@@ -30,7 +30,7 @@
      - **保留原版功能**：按住 `Shift + 右鍵` 隨時執行原版右鍵功能（取消施法、查詢目標）；亦可隨時按 `ESC` 取消選取。
    - **底層技術原理解析（精準引擎勾取）**：
      - 《上帝也瘋狂 3》在 1998 年採用了 DirectX DirectInput 5.0 架構，透過 `GUID_SysMouse` 建立滑鼠裝置，在主迴圈直接以 `GetDeviceData` 讀取硬體隊列，標準 User32 / AHK 腳本完全無效。
-     - 原版引擎更在底層將左鍵同時綁定「選取信徒」與「地面移動」。本專案 `dinput.dll` 轉發層不僅即時轉譯右鍵事件，更直接在遊戲主程序中精準掛鉤移動命令分派核心（`VA 0x00428723`）：當判定為左鍵點擊時直接跳過移動命令，當判定為右鍵時才放行移動命令！實現 **零延遲、零衝突、真正現代化的左鍵選取 / 右鍵移動**！
+     - 原版引擎更在底層將左鍵同時綁定「選取信徒」與「地面移動」。本專案 `dinput.dll` 轉發層不僅即時轉譯右鍵事件，更直接在遊戲主程序中精準掛鉤移動命令分派核心（`VA 0x004D71D0 (QueuePlayerCommand)`）：當判定為左鍵點擊時直接跳過移動命令，當判定為右鍵時才放行移動命令！實現 **零延遲、零衝突、真正現代化的左鍵選取 / 右鍵移動**！
      - 《上帝也瘋狂 3》在 1998 年採用了 DirectX DirectInput 5.0 架構，透過 `GUID_SysMouse` 建立滑鼠裝置，並在主迴圈直接以 `GetDeviceData` 讀取硬體驅動層的緩衝事件隊列。
      - 傳統外部工具（如 AutoHotkey、`mouse_event`、`SendInput`、Windows `WH_MOUSE_LL` 鉤子）僅能注入 User32 訊息隊列，完全被 DirectInput 底層驅動繞過，因此外部點擊完全無效。
      - 本專案採用 **DirectInput 原生轉發代理（`dinput.dll`）**，直接攔截 `IDirectInputDeviceA::GetDeviceData` 與 `GetDeviceState`，在引擎讀取前將右鍵代碼（`DIMOFS_BUTTON1`）即時轉譯為左鍵移動代碼（`DIMOFS_BUTTON0`）。
