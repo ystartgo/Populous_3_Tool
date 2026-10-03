@@ -33,12 +33,24 @@
      - 傳統外部工具（如 AutoHotkey、`mouse_event`、`SendInput`、Windows `WH_MOUSE_LL` 鉤子）僅能注入 User32 訊息隊列，完全被 DirectInput 底層驅動繞過，因此外部點擊完全無效。
      - 本專案採用 **DirectInput 原生轉發代理（`dinput.dll`）**，直接攔截 `IDirectInputDeviceA::GetDeviceData` 與 `GetDeviceState`，在引擎讀取前將右鍵代碼（`DIMOFS_BUTTON1`）即時轉譯為左鍵移動代碼（`DIMOFS_BUTTON0`）。
    - **零背景行程、跨啟動相容**：
-     - 無需在背景常駐任何第三方程式。
+     - 無需在背景常駐任何第三方程式（已淘汰舊版 `PopulousMouseHelper.exe`）。
      - 無論直接從 **Steam 客戶端點擊「開始遊戲」**、點擊桌面捷徑或執行檔，均能 100% 自動生效！
 
 4. **遊戲內換解析度閃退原因說明**
    - **崩潰原因**：1998 年的 DirectX 5/6 引擎在切換解析度時，會嘗試即時銷毀並重建 DirectDraw 表面；在 Windows 10/11 的現代顯卡驅動下會引發記憶體釋放違規（`ntdll.dll 0xc0000005`）。
    - **對策**：使用本工具直接在外部預先設定為 `1024x768`（最高畫質），進入遊戲後請勿在選單中切換解析度。
+
+5. **社群旗艦級擴展：Multiverse Launcher (強烈推薦)**
+   - **官方網站**：[Multiverse Launcher 官方專頁](https://thebeginning.uk/multiverse/)
+   - **什麼是 Multiverse Launcher？**
+     - Multiverse 是全球《上帝也瘋狂 3》社群（The Beginning / PopRE）公認最具代表性的現代擴充客戶端。
+     - **自訂戰役模組庫**：整合無數社群自製戰役（如著名的 *Multiverse*、*Ascension*、*The Beginning: Enhanced Edition* 等），無需覆蓋原始遊戲檔案即可自由切換遊玩。
+     - **全高清（Full HD）介面**：修復現代寬螢幕下的行星太陽系軌道與主選單畫面。
+     - **進階機制擴展**：透過 DLL 注入支援新法術、新建築、火勇士推力（Push Effect）與各項平衡修正。
+     - **多人對戰大廳**：內建社群連線大廳與觀戰系統。
+   - **與本專案的完美相容性**：
+     - 本工具包的繁體中文補丁已直接適配 Multiverse 的戰役結構（自動注入 `Multiverse\GameData\0~2`）。
+     - `dinput.dll` 原生現代 RTS 滑鼠操作亦全面支援 Multiverse 核心進程（`popTBM.exe`）。
 
 ---
 
@@ -57,14 +69,26 @@
 
 ---
 
-### 🚀 安裝與使用指南
+### 🚀 安裝與使用教學 (Tutorial)
 
+#### 方案 A：使用 Steam 原版體驗
 1. **套用繁體中文補丁**：
    - 進入 `Steam中文語系補丁` 資料夾，以管理員身分執行 `套用中文化到Steam(UTF8).bat`。
 2. **調整畫面、解析度與操作模式**：
    - 雙擊執行 `遊戲畫面與字體設定.bat`，即可開啟圖形化設定視窗，自由選擇比例、解析度、字體陰影與滑鼠操作習慣。
-3. **享受現代 RTS 體驗**：
-   - 設定完成後，直接在 Steam 點擊「開始遊戲」，或點擊桌面捷徑即可！
+3. **啟動遊戲**：
+   - 設定完成後，直接在 **Steam 客戶端點擊「開始遊戲」** 或點擊桌面捷徑即可！
+
+#### 方案 B：使用社群 Multiverse Launcher（自訂戰役與模組擴展）
+1. **下載與安裝**：
+   - 前往 [thebeginning.uk/multiverse](https://thebeginning.uk/multiverse/) 下載最新的 Multiverse Launcher 安裝包（或使用遊戲目錄內已附帶的 `MultiverseLauncher.exe`）。
+   - 請將 Multiverse Launcher 安裝在《上帝也瘋狂 3》的根目錄下。
+2. **執行 Multiverse**：
+   - 建議對 `MultiverseLauncher.exe` 點擊右鍵以「系統管理員身分執行」。
+3. **選擇與下載戰役**：
+   - 在主畫面中可瀏覽社群戰役清單（如 Multiverse、The Beginning: Enhanced 等），點擊即可一鍵下載與安裝。
+4. **啟動戰役**：
+   - 選擇想遊玩的戰役後點擊 **Play**，遊戲將透過 `popTBM.exe` 啟動。本工具箱的 **繁體中文** 與 **現代右鍵移動** 會自動在 Multiverse 中無縫生效！
 
 ---
 
@@ -97,12 +121,22 @@ A comprehensive modernization, bug-fix, and Traditional Chinese localization too
      - Standard Windows User32 hooks (`WH_MOUSE_LL`) and simulated inputs (`mouse_event`, `SendInput`, AutoHotkey) only interact with the User32 message queue and are completely bypassed by DirectInput.
      - This project provides a native **DirectInput proxy DLL (`dinput.dll`)** that hooks `GetDeviceData` and `GetDeviceState` from within the process space, translating Right-Click (`DIMOFS_BUTTON1`) into Left-Click (`DIMOFS_BUTTON0`) in real time before the game engine processes it.
    - **Zero Background Processes & Steam Native**:
-     - No external background helper processes required.
+     - No external background helper processes required (retired legacy `PopulousMouseHelper.exe`).
      - Works seamlessly regardless of launch method: directly via the Steam client "Play" button, desktop shortcuts, or custom launchers.
 
 4. **In-Game Resolution Crash Explanation**
    - **Root Cause**: The 1998 DirectX 5/6 engine attempts to instantly destroy and recreate DirectDraw surfaces mid-frame when clicking the in-game resolution slider, triggering heap corruption in `ntdll.dll (0xc0000005)` on Windows 10/11 WDDM drivers.
    - **Solution**: Pre-configure the resolution to `1024x768` using the provided Settings GUI tool and avoid clicking the in-game resolution arrows.
+
+5. **Community Flagship Expansion: Multiverse Launcher (Highly Recommended)**
+   - **Official Website**: [Multiverse Launcher Page](https://thebeginning.uk/multiverse/)
+   - **What is the Multiverse Launcher?**
+     - Multiverse is the premier community launcher and client for *Populous: The Beginning*, maintained by the active community at The Beginning and PopRE.
+     - **Custom Campaigns & Modding**: Play custom user-made campaigns (such as *Multiverse*, *Ascension*, and *Enhanced Edition*) without overwriting game files.
+     - **Full HD Menus**: High-definition rendering of the solar system and main menus for modern widescreen displays.
+     - **Advanced Gameplay Features**: Injects DLL-level enhancements including new spells, buildings, unit mechanics (e.g. Firewarrior pushback), and physics fixes.
+     - **Multiplayer Lobby**: Built-in online matchmaking and spectating system.
+   - **Compatibility**: Fully compatible with our Traditional Chinese localization patch and our native `dinput.dll` modern mouse controls!
 
 ---
 
@@ -121,14 +155,26 @@ To guarantee reliable execution across modern Windows systems and PowerShell 5.1
 
 ---
 
-### 🚀 Usage Instructions
+### 🚀 Usage Instructions & Tutorial
 
+#### Option A: Playing via Steam
 1. **Apply Traditional Chinese Patch**:
    - Open `Steam中文語系補丁` and run `套用中文化到Steam(UTF8).bat` as Administrator.
-2. **Configure Display & Font Quality**:
+2. **Configure Display & Controls**:
    - Double-click `遊戲畫面與字體設定.bat` to launch the GUI configuration tool.
-3. **Play with Modern Right-Click Controls**:
-   - Launch directly through Steam, desktop shortcut, or GUI launcher!
+3. **Launch the Game**:
+   - Launch directly from Steam ("Play" button) or desktop shortcut!
+
+#### Option B: Playing via Multiverse Launcher (Custom Campaigns & Mods)
+1. **Download & Setup**:
+   - Download the installer from [thebeginning.uk/multiverse](https://thebeginning.uk/multiverse/) (or run `MultiverseLauncher.exe` directly from the game directory).
+   - Ensure the launcher is located inside the root *Populous: The Beginning* folder.
+2. **Run as Administrator**:
+   - Right-click `MultiverseLauncher.exe` and select "Run as Administrator".
+3. **Install Campaigns**:
+   - Browse the campaign list in the launcher and download your desired campaigns.
+4. **Launch & Play**:
+   - Select a campaign and click **Play**. It will launch via `popTBM.exe` with our Traditional Chinese patch and modern right-click controls active!
 
 ---
 
