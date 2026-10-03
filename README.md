@@ -73,6 +73,11 @@
 
 ### 🚀 安裝與使用教學 (Tutorial)
 
+#### 滑鼠操作模式切換與還原 (Mouse Control Switching & Restoring)
+- **【一鍵還原原版模式】**：若遇雙游標或習慣原版操控，雙擊執行 還原滑鼠設定(原版模式).bat，將安全停用代理層並恢復原版 1998 操控（左鍵選取兼移動，右鍵旋轉/取消，單一游標零衝突）。
+- **【一鍵切換現代模式】**：雙擊執行 套用現代滑鼠設定(右鍵移動模式).bat，即可重新啟用右鍵移動小人功能。
+- **【圖形化介面自訂】**：雙擊執行 遊戲畫面與字體設定.bat，可自由調整解析度、比例、字體陰影，並隨時點擊「還原原版滑鼠」按鈕。
+
 #### 方案 A：使用 Steam 原版體驗
 1. **套用繁體中文補丁**：
    - 進入 `Steam中文語系補丁` 資料夾，以管理員身分執行 `套用中文化到Steam(UTF8).bat`。
@@ -157,6 +162,11 @@ To guarantee reliable execution across modern Windows systems and PowerShell 5.1
 ---
 
 ### 🚀 Usage Instructions & Tutorial
+
+#### Mouse Control Switching & Restoring
+- **One-Click Restore to Classic Mode**: Run 還原滑鼠設定(原版模式).bat to safely disable the proxy layer and revert to 100% vanilla 1998 mouse controls (Left-Click Select/Move, Right-Click Rotate/Cancel, guaranteed single cursor).
+- **One-Click Enable Modern RTS Mode**: Run 套用現代滑鼠設定(右鍵移動模式).bat to re-enable Right-Click movement.
+- **GUI Settings Tool**: Run 遊戲畫面與字體設定.bat to manage all settings or click "還原原版滑鼠" anytime.
 
 #### Option A: Playing via Steam
 1. **Apply Traditional Chinese Patch**:
