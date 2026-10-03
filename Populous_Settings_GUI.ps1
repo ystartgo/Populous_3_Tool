@@ -116,7 +116,7 @@ $grpMouse.Location = New-Object System.Drawing.Point(20, 180)
 $grpMouse.Size = New-Object System.Drawing.Size(465, 75)
 
 $rbMouseModern = New-Object System.Windows.Forms.RadioButton
-$rbMouseModern.Text = "現代 RTS 模式 (推薦：右鍵點擊地面移動小人，Shift+右鍵取消)"
+$rbMouseModern.Text = "現代 RTS 模式 (推薦：左鍵選取/框選，右鍵移動小人，Shift+右鍵取消)"
 $rbMouseModern.Location = New-Object System.Drawing.Point(15, 22)
 $rbMouseModern.Size = New-Object System.Drawing.Size(440, 22)
 $rbMouseModern.Checked = $isModernMouse
@@ -242,11 +242,13 @@ function Save-AllSettings {
         }
         if (Test-Path $MouseIni) {
             $mText = (Get-Content $MouseIni) -replace "^EnableRightClickMove\s*=.*$", "EnableRightClickMove=1"
+            $mText = $mText -replace "^ModernControls\s*=.*$", "ModernControls=1"
             [System.IO.File]::WriteAllLines($MouseIni, $mText, [System.Text.Encoding]::UTF8)
         }
     } else {
         if (Test-Path $MouseIni) {
             $mText = (Get-Content $MouseIni) -replace "^EnableRightClickMove\s*=.*$", "EnableRightClickMove=0"
+            $mText = $mText -replace "^ModernControls\s*=.*$", "ModernControls=0"
             [System.IO.File]::WriteAllLines($MouseIni, $mText, [System.Text.Encoding]::UTF8)
         }
     }

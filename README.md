@@ -24,12 +24,13 @@
    - **滑鼠控制一鍵切換**：可隨時在「現代 RTS 模式」與「1998 原版模式」之間切換。
 
 3. **原生 DirectInput 現代 RTS 滑鼠右鍵移動小人 (`dinput.dll` 轉發層)**
-   - **符合現代操作習慣（徹底釋放左鍵移動）**：
-     - **右鍵**：**點擊地面直接下達移動/進攻指令**（小人直接跑步就位，不再被取消選取）！
-     - **左鍵單擊地面**：**取消選取 / 釋放小人**（徹底釋放左鍵的移動負擔，點擊空白地面不再誤移動小人）！
-     - **左鍵拖曳**：**拉金光圈框選信徒**（智能識別拖曳距離，超過門檻自動展開範圍選取光圈）。
-     - **保留原版功能**：按住 `Shift + 右鍵` 隨時進行原版物件查詢、取消建築等操作；亦可隨時按 `ESC` 取消選取。
-   - **底層技術原理解析（為什麼外部腳本無效）**：
+   - **符合現代標準 RTS 操作習慣（左鍵純選取、右鍵純移動）**：
+     - **左鍵（選取/框選/介面）**：**點擊信徒選取、拖曳金光圈框選信徒、點擊建築與法術圖示**。徹底釋放左鍵的移動職責！左鍵點擊空地不再發出移動指令，告別誤觸跑位的困擾！
+     - **右鍵（移動/進攻）**：**點擊地面直接下達移動/進攻指令**（選取信徒後，右鍵點擊目標地面，信徒立即跑步就位）！
+     - **保留原版功能**：按住 `Shift + 右鍵` 隨時執行原版右鍵功能（取消施法、查詢目標）；亦可隨時按 `ESC` 取消選取。
+   - **底層技術原理解析（精準引擎勾取）**：
+     - 《上帝也瘋狂 3》在 1998 年採用了 DirectX DirectInput 5.0 架構，透過 `GUID_SysMouse` 建立滑鼠裝置，在主迴圈直接以 `GetDeviceData` 讀取硬體隊列，標準 User32 / AHK 腳本完全無效。
+     - 原版引擎更在底層將左鍵同時綁定「選取信徒」與「地面移動」。本專案 `dinput.dll` 轉發層不僅即時轉譯右鍵事件，更直接在遊戲主程序中精準掛鉤移動命令分派核心（`VA 0x00428723`）：當判定為左鍵點擊時直接跳過移動命令，當判定為右鍵時才放行移動命令！實現 **零延遲、零衝突、真正現代化的左鍵選取 / 右鍵移動**！
      - 《上帝也瘋狂 3》在 1998 年採用了 DirectX DirectInput 5.0 架構，透過 `GUID_SysMouse` 建立滑鼠裝置，並在主迴圈直接以 `GetDeviceData` 讀取硬體驅動層的緩衝事件隊列。
      - 傳統外部工具（如 AutoHotkey、`mouse_event`、`SendInput`、Windows `WH_MOUSE_LL` 鉤子）僅能注入 User32 訊息隊列，完全被 DirectInput 底層驅動繞過，因此外部點擊完全無效。
      - 本專案採用 **DirectInput 原生轉發代理（`dinput.dll`）**，直接攔截 `IDirectInputDeviceA::GetDeviceData` 與 `GetDeviceState`，在引擎讀取前將右鍵代碼（`DIMOFS_BUTTON1`）即時轉譯為左鍵移動代碼（`DIMOFS_BUTTON0`）。
@@ -112,16 +113,14 @@ A comprehensive modernization, bug-fix, and Traditional Chinese localization too
    - **Safe 3D Resolution Pre-configuration**: Allows safely selecting 1024×768 (highest quality), 800×600, or 640×480 prior to launching the game.
    - **Mouse Control Scheme Toggle**: Switch freely between Modern RTS controls and the classic 1998 controls.
 
-3. **Native DirectInput Modern RTS Right-Click Movement (`dinput.dll` Proxy)**
-   - **Modern RTS Control Scheme (Left-Click Relieved from Moving)**:
-     - **Right Click**: **Click on ground to issue movement/attack commands** (followers immediately run to the target location instead of being deselected)!
-     - **Left Click Single Click on Ground**: **Deselect / Cancel selection** (relieves Left-Click from movement duties so accidental clicks don't displace your army)!
-     - **Left Click Drag**: **Golden selection circle / box select** (intelligently measures drag distance to expand the selection circle).
-     - **Preserved Native Features**: Hold `Shift + Right Click` to query objects, inspect followers, or cancel building plans; press `ESC` to deselect anytime.
-   - **Technical Root Cause (Why External Hooks / AHK Failed)**:
-     - *Populous: The Beginning* utilizes DirectX DirectInput 5.0 (`GUID_SysMouse`), retrieving raw mouse events directly from the driver buffer via `IDirectInputDeviceA::GetDeviceData`.
-     - Standard Windows User32 hooks (`WH_MOUSE_LL`) and simulated inputs (`mouse_event`, `SendInput`, AutoHotkey) only interact with the User32 message queue and are completely bypassed by DirectInput.
-     - This project provides a native **DirectInput proxy DLL (`dinput.dll`)** that hooks `GetDeviceData` and `GetDeviceState` from within the process space, translating Right-Click (`DIMOFS_BUTTON1`) into Left-Click (`DIMOFS_BUTTON0`) in real time before the game engine processes it.
+3. **Native DirectInput Modern RTS Controls (`dinput.dll` Proxy + Engine Detour)**
+   - **Modern RTS Control Scheme (Left-Click Selects, Right-Click Moves)**:
+     - **Left-Click (Selection / Box-Select / UI)**: **Click follower to select, click-drag to expand golden selection circle, click spells & UI icons**. Left-Click is 100% relieved of ground movement duties—clicking empty ground will NEVER displace your followers!
+     - **Right-Click (Direct Movement / Attack)**: **Click on ground to command followers to run to the destination**!
+     - **Preserved Native Features**: Hold `Shift + Right Click` to query objects, inspect followers, or cancel building plans; press `ESC` to deselect followers anytime.
+   - **Technical Root Cause & Engine Detour Fix**:
+     - *Populous: The Beginning* (1998) tightly couples follower selection and ground movement to the Left Mouse Button inside its core input loop.
+     - Our native **`dinput.dll` proxy** hooks DirectInput device calls to remap Right-Click into action signals, and installs an inline hook at engine VA `0x00428723` (`Hook_MoveCheck`): if the click was triggered by a physical Left-Click, the move command dispatch is cleanly bypassed; only physical Right-Clicks are permitted to issue `COMMAND_MOVE`. This delivers authentic, zero-latency, modern RTS controls without any external tools.
    - **Zero Background Processes & Steam Native**:
      - No external background helper processes required (retired legacy `PopulousMouseHelper.exe`).
      - Works seamlessly regardless of launch method: directly via the Steam client "Play" button, desktop shortcuts, or custom launchers.
