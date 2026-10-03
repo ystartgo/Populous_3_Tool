@@ -24,10 +24,11 @@
    - **滑鼠控制一鍵切換**：可隨時在「現代 RTS 模式」與「1998 原版模式」之間切換。
 
 3. **原生 DirectInput 現代 RTS 滑鼠右鍵移動小人 (`dinput.dll` 轉發層)**
-   - **符合現代操作習慣**：
-     - **左鍵**：點選單一信徒、拉框框選單位、施放法術、點擊 UI。
+   - **符合現代操作習慣（徹底釋放左鍵移動）**：
      - **右鍵**：**點擊地面直接下達移動/進攻指令**（小人直接跑步就位，不再被取消選取）！
-     - **取消選取 / 查詢**：按鍵盤 `ESC`、`空白鍵`，或按住 `Shift + 右鍵`（保留原版右鍵功能）。
+     - **左鍵單擊地面**：**取消選取 / 釋放小人**（徹底釋放左鍵的移動負擔，點擊空白地面不再誤移動小人）！
+     - **左鍵拖曳**：**拉金光圈框選信徒**（智能識別拖曳距離，超過門檻自動展開範圍選取光圈）。
+     - **保留原版功能**：按住 `Shift + 右鍵` 隨時進行原版物件查詢、取消建築等操作；亦可隨時按 `ESC` 取消選取。
    - **底層技術原理解析（為什麼外部腳本無效）**：
      - 《上帝也瘋狂 3》在 1998 年採用了 DirectX DirectInput 5.0 架構，透過 `GUID_SysMouse` 建立滑鼠裝置，並在主迴圈直接以 `GetDeviceData` 讀取硬體驅動層的緩衝事件隊列。
      - 傳統外部工具（如 AutoHotkey、`mouse_event`、`SendInput`、Windows `WH_MOUSE_LL` 鉤子）僅能注入 User32 訊息隊列，完全被 DirectInput 底層驅動繞過，因此外部點擊完全無效。
@@ -112,10 +113,11 @@ A comprehensive modernization, bug-fix, and Traditional Chinese localization too
    - **Mouse Control Scheme Toggle**: Switch freely between Modern RTS controls and the classic 1998 controls.
 
 3. **Native DirectInput Modern RTS Right-Click Movement (`dinput.dll` Proxy)**
-   - **Modern RTS Control Scheme**:
-     - **Left Click**: Select single follower, drag-box select units, cast spells, click UI.
+   - **Modern RTS Control Scheme (Left-Click Relieved from Moving)**:
      - **Right Click**: **Click on ground to issue movement/attack commands** (followers immediately run to the target location instead of being deselected)!
-     - **Deselect / Query**: Press `ESC`, `Space`, or hold `Shift + Right Click` (preserves original right-click query/deselect behavior).
+     - **Left Click Single Click on Ground**: **Deselect / Cancel selection** (relieves Left-Click from movement duties so accidental clicks don't displace your army)!
+     - **Left Click Drag**: **Golden selection circle / box select** (intelligently measures drag distance to expand the selection circle).
+     - **Preserved Native Features**: Hold `Shift + Right Click` to query objects, inspect followers, or cancel building plans; press `ESC` to deselect anytime.
    - **Technical Root Cause (Why External Hooks / AHK Failed)**:
      - *Populous: The Beginning* utilizes DirectX DirectInput 5.0 (`GUID_SysMouse`), retrieving raw mouse events directly from the driver buffer via `IDirectInputDeviceA::GetDeviceData`.
      - Standard Windows User32 hooks (`WH_MOUSE_LL`) and simulated inputs (`mouse_event`, `SendInput`, AutoHotkey) only interact with the User32 message queue and are completely bypassed by DirectInput.

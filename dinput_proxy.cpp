@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <dinput.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 static const GUID MY_GUID_SysMouse = { 0x6F1D2B60, 0xD5A0, 0x11CF, { 0xBF, 0xC7, 0x44, 0x45, 0x53, 0x54, 0x00, 0x00 } };
 
@@ -10,8 +11,16 @@ static HMODULE g_hRealDInput = NULL;
 static IDirectInputDeviceA* g_pMouseDevice = NULL;
 
 static int g_EnableRightClickMove = 1;
+static int g_LeftClickDeselects = 1;
 static int g_ShiftReverts = 1;
+static int g_DragThreshold = 6;
 static int g_DebugLog = 0;
+
+static BOOL g_LeftPending = FALSE;
+static BOOL g_LeftDragging = FALSE;
+static int g_DragDx = 0;
+static int g_DragDy = 0;
+static DIDEVICEOBJECTDATA g_LeftDownEvent;
 
 typedef HRESULT (WINAPI *DirectInputCreateA_t)(HINSTANCE, DWORD, LPDIRECTINPUTA*, LPUNKNOWN);
 typedef HRESULT (WINAPI *DirectInputCreateW_t)(HINSTANCE, DWORD, LPDIRECTINPUTW*, LPUNKNOWN);
@@ -58,7 +67,9 @@ static void LoadConfig() {
         strcpy(iniPath, "populous_mouse.ini");
     }
     g_EnableRightClickMove = GetPrivateProfileIntA("Mouse", "EnableRightClickMove", 1, iniPath);
+    g_LeftClickDeselects = GetPrivateProfileIntA("Mouse", "LeftClickDeselects", 1, iniPath);
     g_ShiftReverts = GetPrivateProfileIntA("Mouse", "ShiftRevertsToRightClick", 1, iniPath);
+    g_DragThreshold = GetPrivateProfileIntA("Mouse", "DragThreshold", 6, iniPath);
     g_DebugLog = GetPrivateProfileIntA("Mouse", "DebugLog", 0, iniPath);
 }
 
@@ -80,27 +91,88 @@ static void LoadRealDInput() {
     pfnDllGetClassObject = (DllGetClassObject_t)GetProcAddress(g_hRealDInput, "DllGetClassObject");
     pfnDllRegisterServer = (DllRegisterServer_t)GetProcAddress(g_hRealDInput, "DllRegisterServer");
     pfnDllUnregisterServer = (DllUnregisterServer_t)GetProcAddress(g_hRealDInput, "DllUnregisterServer");
-    Log("Loaded real dinput.dll successfully. EnableRightClickMove=%d\n", g_EnableRightClickMove);
+    Log("Loaded real dinput.dll successfully. EnableRightClickMove=%d, LeftClickDeselects=%d\n", g_EnableRightClickMove, g_LeftClickDeselects);
 }
 
 static HRESULT STDMETHODCALLTYPE Hooked_GetDeviceData(IDirectInputDeviceA* pThis, DWORD cbObjectData, LPDIDEVICEOBJECTDATA rgdod, LPDWORD pdwInOut, DWORD dwFlags) {
     HRESULT hr = real_GetDeviceData(pThis, cbObjectData, rgdod, pdwInOut, dwFlags);
     if (SUCCEEDED(hr) && pThis == g_pMouseDevice && rgdod != NULL && pdwInOut != NULL && *pdwInOut > 0) {
         if (g_EnableRightClickMove) {
-            DWORD count = *pdwInOut;
-            for (DWORD i = 0; i < count; i++) {
+            DWORD inCount = *pdwInOut;
+            DIDEVICEOBJECTDATA temp[128];
+            DWORD outCount = 0;
+            
+            for (DWORD i = 0; i < inCount && outCount < 120; i++) {
                 LPDIDEVICEOBJECTDATA item = (LPDIDEVICEOBJECTDATA)((BYTE*)rgdod + i * cbObjectData);
-                if (item->dwOfs == DIMOFS_BUTTON1) { // Right Click
+                
+                if (item->dwOfs == DIMOFS_BUTTON1) { // Physical Right Click
                     BOOL shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
                     if (!shift || !g_ShiftReverts) {
                         // Remap Right Click to Left Click (DIMOFS_BUTTON0) for RTS movement
                         item->dwOfs = DIMOFS_BUTTON0;
+                        temp[outCount++] = *item;
                         Log("Remapped Right Click -> Left Click (dwData=%lu)\n", item->dwData);
                     } else {
+                        temp[outCount++] = *item;
                         Log("Passed through Right Click (Shift held)\n");
                     }
                 }
+                else if (item->dwOfs == DIMOFS_BUTTON0) { // Physical Left Click
+                    if (g_LeftClickDeselects) {
+                        if (item->dwData & 0x80) { // Left Button DOWN
+                            g_LeftPending = TRUE;
+                            g_LeftDragging = FALSE;
+                            g_DragDx = 0;
+                            g_DragDy = 0;
+                            g_LeftDownEvent = *item;
+                            // Wait for drag or button release before emitting
+                        } else { // Left Button UP
+                            if (g_LeftDragging) {
+                                g_LeftDragging = FALSE;
+                                temp[outCount++] = *item; // Emit Button 0 UP to complete drag selection
+                                Log("Left Drag Finish -> Button 0 UP\n");
+                            } else if (g_LeftPending) {
+                                g_LeftPending = FALSE;
+                                // Single click without drag: emit Button 1 (Deselect / Cancel)
+                                DIDEVICEOBJECTDATA rDown = *item;
+                                rDown.dwOfs = DIMOFS_BUTTON1;
+                                rDown.dwData = 0x80;
+                                temp[outCount++] = rDown;
+                                
+                                DIDEVICEOBJECTDATA rUp = *item;
+                                rUp.dwOfs = DIMOFS_BUTTON1;
+                                rUp.dwData = 0x00;
+                                temp[outCount++] = rUp;
+                                Log("Left Click Ground -> Deselect Units (Button 1)\n");
+                            } else {
+                                temp[outCount++] = *item;
+                            }
+                        }
+                    } else {
+                        temp[outCount++] = *item;
+                    }
+                }
+                else if (item->dwOfs == DIMOFS_X || item->dwOfs == DIMOFS_Y) {
+                    temp[outCount++] = *item;
+                    if (g_LeftClickDeselects && g_LeftPending) {
+                        if (item->dwOfs == DIMOFS_X) g_DragDx += abs((int)item->dwData);
+                        if (item->dwOfs == DIMOFS_Y) g_DragDy += abs((int)item->dwData);
+                        if (g_DragDx + g_DragDy >= g_DragThreshold) {
+                            g_LeftPending = FALSE;
+                            g_LeftDragging = TRUE;
+                            temp[outCount++] = g_LeftDownEvent; // Emit Button 0 DOWN to start drag-box selection
+                            Log("Left Drag Start (threshold met) -> Button 0 DOWN\n");
+                        }
+                    }
+                }
+                else {
+                    temp[outCount++] = *item;
+                }
             }
+            
+            // Copy transformed events back to rgdod
+            memcpy(rgdod, temp, outCount * sizeof(DIDEVICEOBJECTDATA));
+            *pdwInOut = outCount;
         }
     }
     return hr;
@@ -116,6 +188,13 @@ static HRESULT STDMETHODCALLTYPE Hooked_GetDeviceState(IDirectInputDeviceA* pThi
                 if (!shift || !g_ShiftReverts) {
                     ms->rgbButtons[0] = ms->rgbButtons[1];
                     ms->rgbButtons[1] = 0;
+                }
+            }
+            if (g_LeftClickDeselects) {
+                if (g_LeftPending) {
+                    ms->rgbButtons[0] = 0; // Suppress premature ground move command
+                } else if (g_LeftDragging) {
+                    ms->rgbButtons[0] = 0x80; // Active box-selection
                 }
             }
         }
